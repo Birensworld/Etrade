@@ -14,6 +14,10 @@
  * Never pass nested objects to setOption(); it silently breaks the chart.
  */
 
+// ─────────────────────────────────────────────────────────────────
+// Public entry points
+// ─────────────────────────────────────────────────────────────────
+
 function buildEquityCurveChartForAccount(suffix) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   try {
@@ -157,6 +161,10 @@ function buildEquityCurveChartForYear_(suffix, year) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Row builder
+// ─────────────────────────────────────────────────────────────────
+
 function buildRows_(dates, netLiqMap, spyMap, qqqMap,
                     baseNetLiq, baseSPY, baseQQQ, markers) {
   return dates.map(function(d) {
@@ -178,6 +186,10 @@ function buildRows_(dates, netLiqMap, spyMap, qqqMap,
     ];
   });
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Sheet setup
+// ─────────────────────────────────────────────────────────────────
 
 function getOrCreateChartSheet_(ss, sheetName) {
   var existing = ss.getSheetByName(sheetName);
@@ -220,6 +232,10 @@ function writeChartData_(sheet, rows, suffix, baseDate) {
   sheet.getRange(metaRow, 1, 2, 2).setFontColor('#888888').setFontStyle('italic');
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Chart rendering
+// ─────────────────────────────────────────────────────────────────
+
 function insertLineChart_(sheet, rows, title) {
   var n = rows.length + 1;
 
@@ -231,4 +247,148 @@ function insertLineChart_(sheet, rows, title) {
   });
   var dataMin = allPcts.length ? Math.min.apply(null, allPcts) : -5;
   var dataMax = allPcts.length ? Math.max.apply(null, allPcts) : 20;
-  var padding = Math.max((dataMax -
+  var padding = Math.max((dataMax - dataMin) * 0.15, 2);
+  var yMin          = Math.floor((dataMin - padding) * 2) / 2;
+  var yMax          = Math.ceil((dataMax  + padding) * 2) / 2;
+  var gridlineCount = Math.round((yMax - yMin) / 0.5) + 1;
+
+  var builder = sheet.newChart()
+    .setChartType(Charts.ChartType.LINE)
+    .addRange(sheet.getRange(1, 1, n, 7))
+    .setNumHeaders(1)
+    .setPosition(rows.length + 5, 1, 0, 0)
+    .setOption('title',  title)
+    .setOption('width',  1200)
+    .setOption('height', 550)
+    .setOption('legend.position', 'top')
+    .setOption('hAxis.title', 'Date')
+    .setOption('hAxis.slantedText', true)
+    .setOption('hAxis.slantedTextAngle', 30)
+    .setOption('vAxis.title', '% Return')
+    .setOption('vAxis.viewWindowMode',       'explicit')
+    .setOption('vAxis.viewWindow.min',       yMin)
+    .setOption('vAxis.viewWindow.max',       yMax)
+    .setOption('vAxis.format',               '0.0')
+    .setOption('vAxis.gridlines.count',      gridlineCount)
+    .setOption('vAxis.titleTextStyle.bold',  true)
+    .setOption('hAxis.titleTextStyle.bold',  true)
+    .setOption('series.0.color',         '#000000')
+    .setOption('series.0.lineWidth',     2)
+    .setOption('series.0.pointsVisible', false)
+    .setOption('series.1.color',         '#34a853')
+    .setOption('series.1.lineWidth',     2)
+    .setOption('series.1.pointsVisible', false)
+    .setOption('series.2.color',         '#ea4335')
+    .setOption('series.2.lineWidth',     2)
+    .setOption('series.2.pointsVisible', false)
+    .setOption('series.3.color',           '#000000')
+    .setOption('series.3.lineWidth',       0)
+    .setOption('series.3.pointsVisible',   true)
+    .setOption('series.3.pointSize',       7)
+    .setOption('series.3.dataLabel',       'value')
+    .setOption('series.3.visibleInLegend', false)
+    .setOption('series.4.color',           '#34a853')
+    .setOption('series.4.lineWidth',       0)
+    .setOption('series.4.pointsVisible',   true)
+    .setOption('series.4.pointSize',       7)
+    .setOption('series.4.dataLabel',       'value')
+    .setOption('series.4.visibleInLegend', false)
+    .setOption('series.5.color',           '#ea4335')
+    .setOption('series.5.lineWidth',       0)
+    .setOption('series.5.pointsVisible',   true)
+    .setOption('series.5.pointSize',       7)
+    .setOption('series.5.dataLabel',       'value')
+    .setOption('series.5.visibleInLegend', false);
+
+  sheet.insertChart(builder.build());
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────
+
+function getMarkerDates_(sortedDates) {
+  var markers = {};
+
+  var byMonth = {};
+  sortedDates.forEach(function(d) {
+    var ym = d.substring(0, 7);
+    if (!byMonth[ym]) byMonth[ym] = [];
+    byMonth[ym].push(d);
+  });
+
+  Object.keys(byMonth).forEach(function(ym) {
+    var datesInMonth = byMonth[ym].sort();
+
+    markers[datesInMonth[datesInMonth.length - 1]] = true;
+
+    var midMonth = datesInMonth.reduce(function(best, d) {
+      if (!best) return d;
+      var dDay    = parseInt(d.substring(8),    10);
+      var bestDay = parseInt(best.substring(8), 10);
+      return Math.abs(dDay - 15) < Math.abs(bestDay - 15) ? d : best;
+    }, null);
+    if (midMonth) markers[midMonth] = true;
+  });
+
+  return markers;
+}
+
+function roundTo2_(n) {
+  return Math.round(n * 100) / 100;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Debug helpers
+// ─────────────────────────────────────────────────────────────────
+
+function debugChartSheet(suffix) {
+  suffix = suffix || '7806';
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(chartSheetName_(suffix));
+  if (!sheet) { console.log('Sheet not found: ' + chartSheetName_(suffix)); return; }
+
+  var vals = sheet.getRange(1, 1, 6, 7).getValues();
+  console.log('=== Chart sheet values (rows 1-6) ===');
+  vals.forEach(function(row, i) { console.log('Row ' + (i + 1) + ': ' + JSON.stringify(row)); });
+
+  var charts = sheet.getCharts();
+  console.log('Charts on sheet: ' + charts.length);
+  if (charts.length > 0) {
+    charts[0].getRanges().forEach(function(r, i) {
+      console.log('  Range ' + i + ': ' + r.getA1Notation() +
+        '  rows=' + r.getNumRows() + '  cols=' + r.getNumColumns());
+    });
+  }
+}
+
+function testMinimalChart() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var existing = ss.getSheetByName('Test Chart');
+  if (existing) ss.deleteSheet(existing);
+  var sheet = ss.insertSheet('Test Chart');
+
+  sheet.getRange(1, 1, 6, 3).setValues([
+    ['Date',       'Series A', 'Series B'],
+    ['2026-01-01', 100,        100       ],
+    ['2026-01-02', 101,        99        ],
+    ['2026-01-03', 103,        98        ],
+    ['2026-01-04', 102,        101       ],
+    ['2026-01-05', 105,        103       ],
+  ]);
+
+  SpreadsheetApp.flush();
+
+  sheet.insertChart(
+    sheet.newChart()
+      .setChartType(Charts.ChartType.LINE)
+      .addRange(sheet.getRange(1, 1, 6, 3))
+      .setNumHeaders(1)
+      .setPosition(8, 1, 0, 0)
+      .build()
+  );
+
+  ss.setActiveSheet(sheet);
+  ss.toast('Test chart created — do you see lines?', 'Chart Test', 10);
+}
