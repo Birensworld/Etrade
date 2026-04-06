@@ -60,30 +60,37 @@ function fetchEtradeBalance(accountKey, accountId, instType, token, secret) {
     { Accept: 'application/json' }
   );
 
-  try {
-    var resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true, headers: headers });
-    var code = resp.getResponseCode();
-    var body = resp.getContentText();
+  var resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true, headers: headers });
+  var code = resp.getResponseCode();
+  var body = resp.getContentText();
 
-    if (code >= 200 && code < 300) {
-      var data = JSON.parse(body);
-      var cb   = (data.BalanceResponse && data.BalanceResponse.Computed) || {};
-      var rt   = cb.RealTimeValues || {};
+  if (code >= 200 && code < 300) {
+    var data = JSON.parse(body);
+    var cb   = (data.BalanceResponse && data.BalanceResponse.Computed) || {};
+    var rt   = cb.RealTimeValues || {};
 
-      var cash              = Number(cb.cashAvailableForInvestment || 0);
-      var totalAccountValue = Number(rt.totalAccountValue || 0);
+    var cash              = Number(cb.cashAvailableForInvestment || 0);
+    var totalAccountValue = Number(rt.totalAccountValue || 0);
 
-      return {
-        cash:              isFinite(cash)              ? cash              : 0,
-        totalAccountValue: isFinite(totalAccountValue) ? totalAccountValue : 0,
-      };
-    }
-    console.warn('Balance API returned ' + code + ' for ' + accountKey);
-  } catch (e) {
-    console.warn('Balance fetch threw for ' + accountKey + ': ' + e);
+    return {
+      cash:              isFinite(cash)              ? cash              : 0,
+      totalAccountValue: isFinite(totalAccountValue) ? totalAccountValue : 0,
+    };
   }
 
-  return { cash: 0, totalAccountValue: 0 };
+  // Surface the actual API error so the user can diagnose it
+  var errDetail = 'HTTP ' + code;
+  try {
+    var errData = JSON.parse(body);
+    var msg = (errData.Error        && errData.Error.message)      ||
+              (errData.fault        && errData.fault.faultstring)   ||
+              (errData.error        && errData.error.description)   ||
+              body.substring(0, 200);
+    if (msg) errDetail += ' — ' + msg;
+  } catch (_) {
+    if (body) errDetail += ' — ' + body.substring(0, 200);
+  }
+  throw new Error('Balance API error for account …' + String(accountKey).slice(-6) + ': ' + errDetail);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -102,9 +109,6 @@ function fetchNetLiqForSuffix_(suffix) {
   if (!acct) throw new Error('Unknown account suffix: ' + suffix);
 
   var bal = fetchEtradeBalance(acct.key, acct.id, acct.instType, tokens.token, tokens.secret);
-  if (!bal || bal.totalAccountValue === 0) {
-    throw new Error('Could not retrieve balance for account ' + acct.label + ' (…' + suffix + ').');
-  }
   return bal.totalAccountValue;
 }
 
