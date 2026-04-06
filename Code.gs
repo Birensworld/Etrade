@@ -1,6 +1,6 @@
 /**
  * Code.gs — E*Trade Portfolio + Equity Curve — Google Apps Script
- * Version: 1.0 (2026-04-05)
+ * Version: 1.1 (2026-04-06) — Add Show Account Keys helper to menu
  *
  * Entry point: onOpen() builds all menus.
  * Functionality is split across separate files:
@@ -74,6 +74,8 @@ function onOpen() {
     .addItem('📊 Refresh Portfolio', 'getPortfolio')
     .addSeparator()
     .addSubMenu(authMenu)
+    .addSeparator()
+    .addItem('🔑 Show Account Keys (for Code.gs setup)', 'showAccountKeys')
     .addToUi();
 
   ui.createMenu('📈 Equity Curve')

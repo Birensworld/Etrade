@@ -1,6 +1,6 @@
 /**
  * EtradeAPI.gs — Low-level E*Trade API wrappers.
- * Version: 1.1 (2026-04-06) — Surface actual HTTP error from balance API; remove silent zero-return
+ * Version: 1.2 (2026-04-06) — Surface actual HTTP error from balance API; add showAccountKeys() helper
  *
  * All functions here deal directly with the E*Trade REST API.
  * Higher-level logic (sheet writes, UI) lives in other files.
@@ -110,6 +110,77 @@ function fetchNetLiqForSuffix_(suffix) {
 
   var bal = fetchEtradeBalance(acct.key, acct.id, acct.instType, tokens.token, tokens.secret);
   return bal.totalAccountValue;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Account discovery  (used for initial Code.gs setup)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches /v1/accounts/list and displays each account's ID, accountIdKey,
+ * and institutionType in an alert dialog so the user can copy them into
+ * the ACCOUNT_MAP in Code.gs.
+ *
+ * Run once after completing OAuth authentication (steps 1–4).
+ */
+function showAccountKeys() {
+  try {
+    renewAccessToken();
+    var tokens = getAccessTokens_();
+
+    var url     = ACCOUNTS_URL + '/list.json';
+    var headers = mergeHeaders_(
+      buildOAuthHeaders_(url, 'GET', tokens.token, tokens.secret),
+      { Accept: 'application/json' }
+    );
+    var resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true, headers: headers });
+    var code = resp.getResponseCode();
+    var body = resp.getContentText();
+
+    if (code < 200 || code >= 300) {
+      SpreadsheetApp.getUi().alert(
+        'Account List Error',
+        'HTTP ' + code + '\n\n' + body.substring(0, 500),
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+      return;
+    }
+
+    var data     = JSON.parse(body);
+    var accounts = (data.AccountListResponse &&
+                    data.AccountListResponse.Accounts &&
+                    data.AccountListResponse.Accounts.Account) || [];
+
+    if (accounts.length === 0) {
+      SpreadsheetApp.getUi().alert('No accounts found in the response.');
+      return;
+    }
+
+    var lines = ['Copy these values into ACCOUNT_MAP in Code.gs:\n'];
+    accounts.forEach(function(a) {
+      var id   = a.accountId        || '(unknown)';
+      var key  = a.accountIdKey     || '(unknown)';
+      var type = a.institutionType  || a.accountType || '(unknown)';
+      var desc = a.accountDesc      || '';
+      lines.push(
+        '────────────────────────\n' +
+        'Description : ' + desc + '\n' +
+        'accountId   : ' + id   + '\n' +
+        'accountIdKey: ' + key  + '\n' +
+        'instType    : ' + type
+      );
+    });
+
+    SpreadsheetApp.getUi().alert(
+      '🔑 E*Trade Account Keys',
+      lines.join('\n\n'),
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('Error', e.message, SpreadsheetApp.getUi().ButtonSet.OK);
+    console.error(e);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
