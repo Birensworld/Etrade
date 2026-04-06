@@ -163,9 +163,11 @@ function getNetLiqMap_(suffix) {
   var col = netLiqCol_(suffix) - 1;
   var map = {};
 
+  var tz_ = Session.getScriptTimeZone();
   sheet.getDataRange().getValues().slice(1).forEach(function(row) {
     if (!row[0]) return;
-    var dateStr = String(row[0]).trim();
+    var raw = row[0];
+    var dateStr = (raw instanceof Date) ? fmtDate_(raw, tz_) : String(raw).trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
     var v = Number(row[col]);
     if (!isFinite(v) || v < 0) return;

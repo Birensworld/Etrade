@@ -183,11 +183,13 @@ function getBenchmarkCloseMaps_() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SPY);
   if (!sheet) return { spy: {}, qqq: {} };
 
+  const tz = Session.getScriptTimeZone();
   const spy = {}, qqq = {};
   sheet.getDataRange().getValues().slice(1).forEach(function(row) {
     if (!row[0] || !row[1]) return;
-    var d = row[0];
-    if (typeof d !== 'string') return;
+    var raw = row[0];
+    var d = (raw instanceof Date) ? fmtDate_(raw, tz) : String(raw).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
     spy[d] = parseFloat(row[1]) || 0;
     if (row[2]) qqq[d] = parseFloat(row[2]) || 0;
   });
