@@ -1,6 +1,6 @@
 /**
  * NetLiquidity.gs — Manages the shared "Net Liquidity" sheet.
- * Version: 1.1 (2026-04-06) — Fix getNetLiqMap_ to handle Date objects from getValues()
+ * Version: 1.2 (2026-04-06) — Format NL value columns as $#,##0.00 currency
  *
  * Sheet layout:
  *   Date | Net Liq 7806 ($) | Net Liq 8090 ($) | Net Liq 3945 ($) | Total Net Liquidity
@@ -39,6 +39,11 @@ function getOrCreateNetLiqSheet_() {
     sheet.setColumnWidth(1, 120);
     ACCOUNT_ORDER.forEach(function(_, i) { sheet.setColumnWidth(i + 2, 185); });
     sheet.setColumnWidth(totalNetLiqCol_(), 160);
+
+    // Pre-format all value columns for the full sheet as $#,##0.00
+    var numCols = ACCOUNT_ORDER.length + 1; // account cols + Total
+    sheet.getRange(2, 2, sheet.getMaxRows() - 1, numCols)
+         .setNumberFormat('"$"#,##0.00');
   }
   return sheet;
 }
@@ -126,7 +131,7 @@ function upsertNetLiqRow_(suffix, dateStr, value, source, skipIfExists) {
     var hasValue = (existing !== '' && existing !== 0 && existing !== null && existing !== undefined);
     if (skipIfExists && hasValue) return false;
 
-    sheet.getRange(i + 1, col).setValue(value);
+    sheet.getRange(i + 1, col).setValue(value).setNumberFormat('"$"#,##0.00');
     return true;
   }
 
@@ -141,6 +146,10 @@ function upsertNetLiqRow_(suffix, dateStr, value, source, skipIfExists) {
   var newRowNum    = sheet.getLastRow();
   var totalFormula = '=SUM(B' + newRowNum + ':' + lastAcctCol + newRowNum + ')';
   sheet.getRange(newRowNum, totalNetLiqCol_()).setFormula(totalFormula);
+
+  // Apply $#,##0.00 format to all value cells in the new row
+  var numCols = ACCOUNT_ORDER.length + 1; // account cols + Total
+  sheet.getRange(newRowNum, 2, 1, numCols).setNumberFormat('"$"#,##0.00');
 
   return true;
 }
