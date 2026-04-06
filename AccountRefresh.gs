@@ -1,6 +1,6 @@
 /**
  * AccountRefresh.gs — Fetches and displays the E*Trade portfolio.
- * Version: 1.1 (2026-04-05)
+ * Version: 1.2 (2026-04-06) — Replace GOOGLEFINANCE change% with E*Trade market quote API
  *
  * Writes to sheet "EtradeB":
  *   • One header row per account (label | total value | cash | ALLOC | YTD P/L)
@@ -108,7 +108,8 @@ function getPortfolio() {
     rowIndex++;
 
     // ── Positions data ────────────────────────────────────────
-    var posUrl  = ACCOUNTS_URL + '/' + accountKey + '/portfolio.json';
+    // Request COMPLETE view so the Quick quote block (changePct) is included
+    var posUrl  = ACCOUNTS_URL + '/' + accountKey + '/portfolio.json?view=COMPLETE';
     var posHdrs = buildOAuthHeaders_(posUrl, 'GET', token, secret);
     var posResp = UrlFetchApp.fetch(posUrl, { method: 'get', muteHttpExceptions: true, headers: posHdrs });
     var posData = {};
@@ -131,6 +132,31 @@ function getPortfolio() {
           return (b.marketValue || 0) - (a.marketValue || 0);
         });
 
+        // ── Resolve change% from portfolio Quick object ───────
+        // p.Quick.changePct is already a percentage (e.g. 0.82 = 0.82%)
+        // Convert to decimal for consistent sheet formatting.
+        // Collect symbols that have no Quick data for a fallback batch quote call.
+        var changePctMap  = {};
+        var missingSymbols = [];
+
+        positions.forEach(function(p) {
+          var sym = (p.Product && p.Product.symbol) || '';
+          if (!sym) return;
+          if (p.Quick && p.Quick.changePct !== undefined && p.Quick.changePct !== null) {
+            changePctMap[sym] = p.Quick.changePct / 100;
+          } else {
+            missingSymbols.push(sym);
+          }
+        });
+
+        // Fallback: batch-fetch from E*Trade market quote API for any missing
+        if (missingSymbols.length > 0) {
+          var fallback = fetchEtradeQuotes_(missingSymbols, token, secret);
+          Object.keys(fallback).forEach(function(sym) {
+            changePctMap[sym] = fallback[sym];
+          });
+        }
+
         var posRows = positions.map(function(p) {
           var symbol    = (p.Product && p.Product.symbol) || '';
           var qty       = p.quantity || 0;
@@ -140,23 +166,18 @@ function getPortfolio() {
           var pl        = mv - costBasis;
           var plPct     = costBasis ? (pl / costBasis) : 0;
           var weight    = totalValue ? (mv / totalValue) : 0;
+          var chgPct    = changePctMap[symbol] || 0;
 
-          return [symbol, qty, '', avgPrice, mv, pl, plPct, weight, accountId, accountKey];
+          return [symbol, qty, chgPct, avgPrice, mv, pl, plPct, weight, accountId, accountKey];
         });
 
         if (posRows.length > 0) {
-          // Write all rows at once
+          // Write all rows at once (change% is now a real value, not a formula)
           sheet.getRange(rowIndex, 1, posRows.length, posHeader.length).setValues(posRows);
-
-          // GOOGLEFINANCE formulas for Change %
-          var formulas = positions.map(function(p) {
-            var sym = (p.Product && p.Product.symbol) || '';
-            return ['=IFERROR(GOOGLEFINANCE("' + sym + '","changepct")/100,0)'];
-          });
-          sheet.getRange(rowIndex, 3, formulas.length, 1).setFormulas(formulas);
 
           // Number formats
           sheet.getRange(rowIndex, 2, posRows.length, 1).setNumberFormat('#,##0');       // Qty
+          sheet.getRange(rowIndex, 3, posRows.length, 1).setNumberFormat('0.00%');       // Chg%
           sheet.getRange(rowIndex, 4, posRows.length, 3).setNumberFormat('#,##0.00');    // Avg/MV/P&L
           sheet.getRange(rowIndex, 7, posRows.length, 1).setNumberFormat('0.00%');       // P/L%
           sheet.getRange(rowIndex, 8, posRows.length, 1).setNumberFormat('0.00%');       // Weight

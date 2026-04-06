@@ -1,6 +1,6 @@
 /**
  * EtradeAPI.gs — Low-level E*Trade API wrappers.
- * Version: 1.2 (2026-04-06) — Surface actual HTTP error from balance API; add showAccountKeys() helper
+ * Version: 1.3 (2026-04-06) — Add fetchEtradeQuotes_() for real-time change% from E*Trade market API
  *
  * All functions here deal directly with the E*Trade REST API.
  * Higher-level logic (sheet writes, UI) lives in other files.
@@ -193,6 +193,67 @@ function mergeHeaders_(h1, h2) {
   for (var k in h1) out[k] = h1[k];
   for (var k in h2) out[k] = h2[k];
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Market quotes  (used by AccountRefresh.gs)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches real-time quotes for a list of symbols via E*Trade's market API.
+ * Returns a map of { SYMBOL: changePct } where changePct is a decimal (e.g. 0.0082).
+ *
+ * E*Trade supports up to 25 symbols per request; this function batches as needed.
+ *
+ * @param {string[]} symbols  e.g. ['AAPL', 'MSFT', 'GOOG']
+ * @param {string}   token    OAuth access token
+ * @param {string}   secret   OAuth access secret
+ * @returns {Object} { 'AAPL': 0.0082, 'MSFT': -0.0031, … }
+ */
+function fetchEtradeQuotes_(symbols, token, secret) {
+  if (!symbols || symbols.length === 0) return {};
+
+  var result = {};
+  var BATCH  = 25;
+
+  for (var i = 0; i < symbols.length; i += BATCH) {
+    var batch     = symbols.slice(i, i + BATCH);
+    var symbolStr = batch.join(',');
+    var url       = BASE_URL + '/v1/market/quote/' + symbolStr + '.json';
+    var headers   = mergeHeaders_(
+      buildOAuthHeaders_(url, 'GET', token, secret),
+      { Accept: 'application/json' }
+    );
+
+    try {
+      var resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true, headers: headers });
+      var code = resp.getResponseCode();
+
+      if (code < 200 || code >= 300) {
+        console.warn('Quote API returned HTTP ' + code + ' for: ' + symbolStr);
+        continue;
+      }
+
+      var data   = JSON.parse(resp.getContentText());
+      var quotes = (data.QuoteResponse && data.QuoteResponse.QuoteData) || [];
+
+      // QuoteData is an object (not array) when only one symbol is requested
+      if (!Array.isArray(quotes)) quotes = [quotes];
+
+      quotes.forEach(function(q) {
+        var sym = q.Product && q.Product.symbol;
+        var pct = q.All    && q.All.changeClosePercentage;
+        if (sym && pct !== undefined && pct !== null) {
+          result[sym] = pct / 100;   // API returns e.g. 0.82 → store as 0.0082
+        }
+      });
+
+    } catch (e) {
+      console.warn('fetchEtradeQuotes_ batch failed (' + symbolStr + '): ' + e.message);
+    }
+  }
+
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────
