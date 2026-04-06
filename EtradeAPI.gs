@@ -1,6 +1,6 @@
 /**
  * EtradeAPI.gs — Low-level E*Trade API wrappers.
- * Version: 1.0 (2026-04-05)
+ * Version: 1.1 (2026-04-06) — Surface actual HTTP error from balance API; remove silent zero-return
  *
  * All functions here deal directly with the E*Trade REST API.
  * Higher-level logic (sheet writes, UI) lives in other files.

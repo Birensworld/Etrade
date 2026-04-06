@@ -1,6 +1,6 @@
 /**
  * NetLiquidity.gs — Manages the shared "Net Liquidity" sheet.
- * Version: 1.0 (2026-04-05) — Ported from Schwab; NL fetch via EtradeAPI.gs fetchNetLiqForSuffix_().
+ * Version: 1.1 (2026-04-06) — Fix getNetLiqMap_ to handle Date objects from getValues()
  *
  * Sheet layout:
  *   Date | Net Liq 7806 ($) | Net Liq 8090 ($) | Net Liq 3945 ($) | Total Net Liquidity

@@ -1,6 +1,6 @@
 /**
  * SPYHistory.gs — Fetches and stores daily SPY and QQQ closing prices.
- * Version: 2.0 (2026-04-05) — Ported from Schwab. Actual close prices only; no indexed columns.
+ * Version: 2.1 (2026-04-06) — Fix getBenchmarkCloseMaps_ to handle Date objects from getValues()
  *
  * Sheet layout (SHEET_SPY):
  *   Date | SPY Close ($) | QQQ Close ($)
