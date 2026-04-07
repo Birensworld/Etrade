@@ -1,6 +1,6 @@
 /**
  * Code.gs — EtradeA Sheet — E*Trade Portfolio + Equity Curve
- * Version: 1.1 (2026-04-07) — Add debugNetLiqReturn() to diagnose null result in captureAllNetLiq
+ * Version: 1.2 (2026-04-07) — Enhance debugNetLiqReturn to check live function param count
  *
  * Accounts: …3945 (ETrade A IRA)
  *
@@ -160,17 +160,26 @@ function captureAllNetLiq() {
  * see why captureAllNetLiq's null-check is firing.
  */
 function debugNetLiqReturn() {
-  var result = fetchTodayNetLiqForAccount('3945', true, true);
-  var msg =
-    'typeof result : ' + (typeof result) + '\n' +
-    'result        : ' + JSON.stringify(result) + '\n\n' +
-    (result
-      ? 'status : ' + result.status + '\n' +
-        'suffix : ' + result.suffix
-      : '⚠️ result is ' + result);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  SpreadsheetApp.getActiveSpreadsheet()
-    .toast(msg, '🔍 debugNetLiqReturn', 30);
+  // Step 1: Check how many params the LIVE function has.
+  // Old (void) version = 2 params. New (returns object) version = 3 params.
+  var paramCount = fetchTodayNetLiqForAccount.length;
+  ss.toast(
+    'Live param count : ' + paramCount + '  (expect 3)\n' +
+    'If 2 → GAS is running cached old version',
+    '🔍 Step 1 – Param count', 10
+  );
+  console.log('fetchTodayNetLiqForAccount.length = ' + paramCount);
+  Utilities.sleep(10000);
+
+  // Step 2: Call and capture result
+  var result = fetchTodayNetLiqForAccount('3945', true, true);
+  ss.toast(
+    'typeof result : ' + (typeof result) + '\n' +
+    'result        : ' + JSON.stringify(result),
+    '🔍 Step 2 – Return value', 30
+  );
   console.log('debugNetLiqReturn → ' + JSON.stringify(result));
 }
 
