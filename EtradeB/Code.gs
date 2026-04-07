@@ -1,6 +1,6 @@
 /**
  * Code.gs — EtradeB Sheet — E*Trade Portfolio + Equity Curve
- * Version: 1.4 (2026-04-07) — Split into EtradeB/EtradeA configs; remove account 3945
+ * Version: 1.5 (2026-04-07) — Rename fetchTodayNetLiqForAccount → captureNetLiqForAccount to match NetLiquidity.gs v1.4
  *
  * Accounts: …7806 (ETrade B), …8090 (ETrade B IRA)
  *
@@ -104,8 +104,8 @@ function onOpen() {
 // ─────────────────────────────────────────────────────────────────
 // Per-account menu wrappers
 // ─────────────────────────────────────────────────────────────────
-function fetchTodayNetLiq_7806()            { fetchTodayNetLiqForAccount('7806'); }
-function fetchTodayNetLiq_8090()            { fetchTodayNetLiqForAccount('8090'); }
+function fetchTodayNetLiq_7806()            { captureNetLiqForAccount('7806'); }
+function fetchTodayNetLiq_8090()            { captureNetLiqForAccount('8090'); }
 
 function buildEquityCurveChart_7806()       { buildEquityCurveChartForAccount('7806'); }
 function buildEquityCurveChart_8090()       { buildEquityCurveChartForAccount('8090'); }
@@ -126,7 +126,7 @@ function captureAllNetLiq() {
   ss.toast('Capturing Net Liquidity for all accounts…', 'Working', -1);
 
   var results = ACCOUNT_ORDER.map(function(suffix) {
-    return fetchTodayNetLiqForAccount(suffix, true, true);  // skipIfExists=true, silent=true
+    return captureNetLiqForAccount(suffix, true, true);  // skipIfExists=true, silent=true
   });
 
   var lines  = [];
@@ -164,7 +164,7 @@ function captureAllNetLiq() {
 /** Daily trigger target — captures Net Liq for all accounts. */
 function fetchTodayNetLiq() {
   ACCOUNT_ORDER.forEach(function(suffix) {
-    try { fetchTodayNetLiqForAccount(suffix, true); }
+    try { captureNetLiqForAccount(suffix, true); }
     catch (e) { console.error('Daily snapshot failed for …' + suffix + ': ' + e.message); }
   });
 }
@@ -173,7 +173,7 @@ function fetchTodayNetLiq() {
 function refreshAllData() {
   fetchSPYHistory();
   ACCOUNT_ORDER.forEach(function(suffix) {
-    fetchTodayNetLiqForAccount(suffix, true);
+    captureNetLiqForAccount(suffix, true);
     buildEquityCurveChartForAccount(suffix);
   });
 }

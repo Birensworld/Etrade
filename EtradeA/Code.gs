@@ -1,6 +1,6 @@
 /**
  * Code.gs — EtradeA Sheet — E*Trade Portfolio + Equity Curve
- * Version: 1.2 (2026-04-07) — Enhance debugNetLiqReturn to check live function param count
+ * Version: 1.3 (2026-04-07) — Rename fetchTodayNetLiqForAccount → captureNetLiqForAccount to match NetLiquidity.gs v1.4
  *
  * Accounts: …3945 (ETrade A IRA)
  *
@@ -98,7 +98,7 @@ function onOpen() {
 // ─────────────────────────────────────────────────────────────────
 // Per-account menu wrappers
 // ─────────────────────────────────────────────────────────────────
-function fetchTodayNetLiq_3945()            { fetchTodayNetLiqForAccount('3945'); }
+function fetchTodayNetLiq_3945()            { captureNetLiqForAccount('3945'); }
 function buildEquityCurveChart_3945()       { buildEquityCurveChartForAccount('3945'); }
 function buildEquityCurveChartYearly_3945() { promptAndBuildYearlyEquityCurve_('3945'); }
 
@@ -115,7 +115,7 @@ function captureAllNetLiq() {
   ss.toast('Capturing Net Liquidity for all accounts…', 'Working', -1);
 
   var results = ACCOUNT_ORDER.map(function(suffix) {
-    return fetchTodayNetLiqForAccount(suffix, true, true);  // skipIfExists=true, silent=true
+    return captureNetLiqForAccount(suffix, true, true);  // skipIfExists=true, silent=true
   });
 
   var lines  = [];
@@ -156,7 +156,7 @@ function captureAllNetLiq() {
 
 /**
  * Run this directly from the GAS editor (Run → debugNetLiqReturn).
- * Shows exactly what fetchTodayNetLiqForAccount returns so we can
+ * Shows exactly what captureNetLiqForAccount returns so we can
  * see why captureAllNetLiq's null-check is firing.
  */
 function debugNetLiqReturn() {
@@ -164,17 +164,17 @@ function debugNetLiqReturn() {
 
   // Step 1: Check how many params the LIVE function has.
   // Old (void) version = 2 params. New (returns object) version = 3 params.
-  var paramCount = fetchTodayNetLiqForAccount.length;
+  var paramCount = captureNetLiqForAccount.length;
   ss.toast(
     'Live param count : ' + paramCount + '  (expect 3)\n' +
     'If 2 → GAS is running cached old version',
     '🔍 Step 1 – Param count', 10
   );
-  console.log('fetchTodayNetLiqForAccount.length = ' + paramCount);
+  console.log('captureNetLiqForAccount.length = ' + paramCount);
   Utilities.sleep(10000);
 
   // Step 2: Call and capture result
-  var result = fetchTodayNetLiqForAccount('3945', true, true);
+  var result = captureNetLiqForAccount('3945', true, true);
   ss.toast(
     'typeof result : ' + (typeof result) + '\n' +
     'result        : ' + JSON.stringify(result),
@@ -186,7 +186,7 @@ function debugNetLiqReturn() {
 /** Daily trigger target — captures Net Liq for all accounts. */
 function fetchTodayNetLiq() {
   ACCOUNT_ORDER.forEach(function(suffix) {
-    try { fetchTodayNetLiqForAccount(suffix, true); }
+    try { captureNetLiqForAccount(suffix, true); }
     catch (e) { console.error('Daily snapshot failed for …' + suffix + ': ' + e.message); }
   });
 }
@@ -195,7 +195,7 @@ function fetchTodayNetLiq() {
 function refreshAllData() {
   fetchSPYHistory();
   ACCOUNT_ORDER.forEach(function(suffix) {
-    fetchTodayNetLiqForAccount(suffix, true);
+    captureNetLiqForAccount(suffix, true);
     buildEquityCurveChartForAccount(suffix);
   });
 }

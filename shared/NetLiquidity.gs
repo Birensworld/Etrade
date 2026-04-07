@@ -1,6 +1,6 @@
 /**
  * NetLiquidity.gs — Manages the shared "Net Liquidity" sheet.
- * Version: 1.3 (2026-04-07) — fetchTodayNetLiqForAccount returns result object; add silent mode for batch capture
+ * Version: 1.4 (2026-04-07) — Rename captureNetLiqForAccount → captureNetLiqForAccount to bypass GAS cache
  *
  * Sheet layout:
  *   Date | Net Liq 7806 ($) | Net Liq 8090 ($) | Net Liq 3945 ($) | Total Net Liquidity
@@ -60,7 +60,7 @@ function getOrCreateNetLiqSheet_() {
  * @param {boolean} silent        If true, suppress toasts/alerts — caller handles UI (default: false)
  * @returns {{ status: 'captured'|'skipped'|'error', suffix, value, dateStr, message }}
  */
-function fetchTodayNetLiqForAccount(suffix, skipIfExists, silent) {
+function captureNetLiqForAccount(suffix, skipIfExists, silent) {
   if (skipIfExists === undefined) skipIfExists = true;
   if (silent      === undefined) silent       = false;
 
