@@ -1,27 +1,30 @@
 /**
- * Code.gs — E*Trade Portfolio + Equity Curve — Google Apps Script
- * Version: 1.3 (2026-04-07) — Defensive null-check in captureAllNetLiq() results loop
+ * Code.gs — EtradeB Sheet — E*Trade Portfolio + Equity Curve
+ * Version: 1.4 (2026-04-07) — Split into EtradeB/EtradeA configs; remove account 3945
  *
- * Entry point: onOpen() builds all menus.
- * Functionality is split across separate files:
- *   Authentication.gs   — OAuth 1.0a (request token → PIN → access token → renew)
+ * Accounts: …7806 (ETrade B), …8090 (ETrade B IRA)
+ *
+ * Deploy to GAS project by copying all files from shared/ + this Code.gs.
+ *
+ * Shared files (shared/):
+ *   Authentication.gs   — OAuth 1.0a flow
  *   EtradeAPI.gs        — Low-level E*Trade API wrappers
- *   AccountRefresh.gs   — Portfolio refresh (getPortfolio)
+ *   AccountRefresh.gs   — Portfolio refresh
  *   Liquidation.gs      — Position liquidation
  *   NetLiquidity.gs     — Net Liquidity sheet management
  *   SPYHistory.gs       — SPY + QQQ price history
- *   EquityCurveChart.gs — % change equity curve with month-end labels
+ *   EquityCurveChart.gs — % change equity curve chart
  *   Backup.gs           — Backup to separate spreadsheet
- *   Triggers.gs         — Daily trigger setup / teardown
+ *   Trigger.gs          — Daily trigger setup / teardown
  */
 
 // ─────────────────────────────────────────────────────────────────
-// API + Auth constants  (fill in before deploying)
+// API + Auth constants  (fill in before deploying — do NOT commit real values)
 // ─────────────────────────────────────────────────────────────────
-const BASE_URL       = 'https://api.etrade.com';
-const ACCOUNTS_URL   = BASE_URL + '/v1/accounts';
-const CONSUMER_KEY   = '<your-consumer-key>';
-const CONSUMER_SECRET= '<your-consumer-secret>';
+const BASE_URL        = 'https://api.etrade.com';
+const ACCOUNTS_URL    = BASE_URL + '/v1/accounts';
+const CONSUMER_KEY    = '<your-consumer-key>';
+const CONSUMER_SECRET = '<your-consumer-secret>';
 
 // ─────────────────────────────────────────────────────────────────
 // Sheet names
@@ -32,25 +35,24 @@ const SHEET_SPY     = 'SPY History';
 const HISTORY_START = '2026-01-01';
 
 // ─────────────────────────────────────────────────────────────────
-// Account map  (fill in actual IDs and keys before deploying)
+// Account map
 //
-// Suffix  = last 4 digits of account ID (used as short identifier)
+// Suffix  = last 4 digits of account ID (short identifier)
 // id      = full numeric account ID
 // key     = accountIdKey from E*Trade /v1/accounts/list API
-// label   = display name shown in the portfolio sheet
-// instType= 'BROKERAGE' or 'BROKERAGE_IRA' etc.
+// label   = display name in portfolio sheet
+// instType= 'BROKERAGE' or 'BROKERAGE_IRA'
 // ─────────────────────────────────────────────────────────────────
 const ACCOUNT_MAP = {
-  '7806': { id: '<account-id-ending-7806>', key: '<account-key-7806>', label: 'ETrade B',     instType: 'BROKERAGE'     },
-  '8090': { id: '<account-id-ending-8090>', key: '<account-key-8090>', label: 'ETrade B IRA', instType: 'BROKERAGE'     },
-  '3945': { id: '<account-id-ending-3945>', key: '<account-key-3945>', label: 'ETrade A',     instType: 'BROKERAGE'     },
+  '7806': { id: '<account-id-ending-7806>', key: '<account-key-7806>', label: 'ETrade B',     instType: 'BROKERAGE' },
+  '8090': { id: '<account-id-ending-8090>', key: '<account-key-8090>', label: 'ETrade B IRA', instType: 'BROKERAGE' },
 };
 
-// Column order in the Net Liquidity sheet (add/remove suffixes as needed)
-const ACCOUNT_ORDER = ['7806', '8090', '3945'];
+// Column order in the NL History sheet
+const ACCOUNT_ORDER = ['7806', '8090'];
 
 // ─────────────────────────────────────────────────────────────────
-// Shared helpers used across files
+// Shared helpers
 // ─────────────────────────────────────────────────────────────────
 function netLiqCol_(suffix)      { return ACCOUNT_ORDER.indexOf(suffix) + 2; }
 function totalNetLiqCol_()       { return ACCOUNT_ORDER.length + 2; }
@@ -63,12 +65,12 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
 
   var authMenu = ui.createMenu('🔐 Authentication')
-    .addItem('1 – Reset Auth (clear tokens)',   'resetAuth')
-    .addItem('2 – Get Request Token',           'menuGetRequestToken')
-    .addItem('3 – Set Verifier (PIN)',           'menuSetVerifier')
-    .addItem('4 – Get Access Token',            'menuGetAccessToken')
+    .addItem('1 – Reset Auth (clear tokens)', 'resetAuth')
+    .addItem('2 – Get Request Token',         'menuGetRequestToken')
+    .addItem('3 – Set Verifier (PIN)',         'menuSetVerifier')
+    .addItem('4 – Get Access Token',          'menuGetAccessToken')
     .addSeparator()
-    .addItem('Renew Access Token',              'renewAccessToken');
+    .addItem('Renew Access Token',            'renewAccessToken');
 
   ui.createMenu('E*Trade')
     .addItem('📊 Refresh Portfolio', 'getPortfolio')
@@ -79,7 +81,7 @@ function onOpen() {
     .addToUi();
 
   ui.createMenu('📈 Equity Curve')
-    .addItem('📊 Fetch SPY + QQQ History',              'fetchSPYHistory')
+    .addItem('📊 Fetch SPY + QQQ History',               'fetchSPYHistory')
     .addItem('📸 Capture Today\'s Net Liq – All Accounts', 'captureAllNetLiq')
     .addSeparator()
     .addSubMenu(ui.createMenu('💼 Account …7806')
@@ -92,11 +94,6 @@ function onOpen() {
       .addSeparator()
       .addItem('📈 Build / Refresh Equity Curve Chart', 'buildEquityCurveChart_8090')
       .addItem('📅 Build Chart – By Year',              'buildEquityCurveChartYearly_8090'))
-    .addSubMenu(ui.createMenu('💼 Account …3945')
-      .addItem("Capture Today's Net Liquidity (skip if exists)", 'fetchTodayNetLiq_3945')
-      .addSeparator()
-      .addItem('📈 Build / Refresh Equity Curve Chart', 'buildEquityCurveChart_3945')
-      .addItem('📅 Build Chart – By Year',              'buildEquityCurveChartYearly_3945'))
     .addSeparator()
     .addSubMenu(ui.createMenu('⏰ Automation')
       .addItem('Enable Daily Snapshot – All Accounts (4:30 PM ET)', 'setupDailyTrigger')
@@ -107,26 +104,22 @@ function onOpen() {
 // ─────────────────────────────────────────────────────────────────
 // Per-account menu wrappers
 // ─────────────────────────────────────────────────────────────────
-function fetchTodayNetLiq_7806()              { fetchTodayNetLiqForAccount('7806'); }
-function fetchTodayNetLiq_8090()              { fetchTodayNetLiqForAccount('8090'); }
-function fetchTodayNetLiq_3945()              { fetchTodayNetLiqForAccount('3945'); }
+function fetchTodayNetLiq_7806()            { fetchTodayNetLiqForAccount('7806'); }
+function fetchTodayNetLiq_8090()            { fetchTodayNetLiqForAccount('8090'); }
 
-function buildEquityCurveChart_7806()         { buildEquityCurveChartForAccount('7806'); }
-function buildEquityCurveChart_8090()         { buildEquityCurveChartForAccount('8090'); }
-function buildEquityCurveChart_3945()         { buildEquityCurveChartForAccount('3945'); }
+function buildEquityCurveChart_7806()       { buildEquityCurveChartForAccount('7806'); }
+function buildEquityCurveChart_8090()       { buildEquityCurveChartForAccount('8090'); }
 
-function buildEquityCurveChartYearly_7806()   { promptAndBuildYearlyEquityCurve_('7806'); }
-function buildEquityCurveChartYearly_8090()   { promptAndBuildYearlyEquityCurve_('8090'); }
-function buildEquityCurveChartYearly_3945()   { promptAndBuildYearlyEquityCurve_('3945'); }
+function buildEquityCurveChartYearly_7806() { promptAndBuildYearlyEquityCurve_('7806'); }
+function buildEquityCurveChartYearly_8090() { promptAndBuildYearlyEquityCurve_('8090'); }
 
 // ─────────────────────────────────────────────────────────────────
 // Batch helpers
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Menu entry: captures today's Net Liquidity for ALL accounts in one click.
+ * Captures today's Net Liquidity for all accounts in one click.
  * Runs silently per-account then shows a combined summary toast.
- * Any errors are surfaced in a single alert after all accounts finish.
  */
 function captureAllNetLiq() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -136,16 +129,14 @@ function captureAllNetLiq() {
     return fetchTodayNetLiqForAccount(suffix, true, true);  // skipIfExists=true, silent=true
   });
 
-  // Build summary lines
   var lines  = [];
   var errors = [];
 
   results.forEach(function(r, i) {
-    // Guard against old NetLiquidity.gs (void return) being deployed without this Code.gs
     if (!r || typeof r.status === 'undefined') {
       var s = ACCOUNT_ORDER[i] || '?';
-      lines.push('❌ …' + s + ':  no result returned — ensure NetLiquidity.gs is also updated');
-      errors.push('Account …' + s + ':\nNetLiquidity.gs may not be up to date. Please re-deploy both files.');
+      lines.push('❌ …' + s + ':  no result — ensure NetLiquidity.gs is up to date');
+      errors.push('Account …' + s + ':\nNetLiquidity.gs may not be up to date. Re-deploy both files.');
       return;
     }
     if (r.status === 'captured') {
@@ -174,7 +165,7 @@ function captureAllNetLiq() {
 function fetchTodayNetLiq() {
   ACCOUNT_ORDER.forEach(function(suffix) {
     try { fetchTodayNetLiqForAccount(suffix, true); }
-    catch (e) { console.error('Daily snapshot failed for account ' + suffix + ': ' + e.message); }
+    catch (e) { console.error('Daily snapshot failed for …' + suffix + ': ' + e.message); }
   });
 }
 
