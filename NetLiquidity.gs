@@ -1,6 +1,6 @@
 /**
  * NetLiquidity.gs — Manages the shared "Net Liquidity" sheet.
- * Version: 1.2 (2026-04-06) — Format NL value columns as $#,##0.00 currency
+ * Version: 1.3 (2026-04-07) — fetchTodayNetLiqForAccount returns result object; add silent mode for batch capture
  *
  * Sheet layout:
  *   Date | Net Liq 7806 ($) | Net Liq 8090 ($) | Net Liq 3945 ($) | Total Net Liquidity
@@ -54,32 +54,48 @@ function getOrCreateNetLiqSheet_() {
 
 /**
  * Fetches live Net Liquidity from E*Trade for one account and logs it.
+ *
  * @param {string}  suffix        e.g. '7806'
- * @param {boolean} skipIfExists  If true, don't overwrite an existing value for today
+ * @param {boolean} skipIfExists  If true, don't overwrite an existing value for today (default: true)
+ * @param {boolean} silent        If true, suppress toasts/alerts — caller handles UI (default: false)
+ * @returns {{ status: 'captured'|'skipped'|'error', suffix, value, dateStr, message }}
  */
-function fetchTodayNetLiqForAccount(suffix, skipIfExists) {
+function fetchTodayNetLiqForAccount(suffix, skipIfExists, silent) {
   if (skipIfExists === undefined) skipIfExists = true;
+  if (silent      === undefined) silent       = false;
+
   try {
     var value   = fetchNetLiqForSuffix_(suffix);
     var dateStr = todayStr_();
     var written = upsertNetLiqRow_(suffix, dateStr, value, 'API', skipIfExists);
+
     if (!written) {
-      SpreadsheetApp.getActiveSpreadsheet().toast(
-        'Account …' + suffix + ': entry for ' + dateStr + ' already exists — skipped.',
-        'ℹ️ No Change', 5
-      );
-      return;
+      if (!silent) {
+        SpreadsheetApp.getActiveSpreadsheet().toast(
+          'Account …' + suffix + ': entry for ' + dateStr + ' already exists — skipped.',
+          'ℹ️ No Change', 5
+        );
+      }
+      return { status: 'skipped', suffix: suffix, value: value, dateStr: dateStr };
     }
+
     backupNetLiq_();
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      'Account …' + suffix + '  Net Liq: $' +
-        value.toLocaleString('en-US', { minimumFractionDigits: 2 }),
-      '✅ Captured', 5
-    );
+    if (!silent) {
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        'Account …' + suffix + '  Net Liq: $' +
+          value.toLocaleString('en-US', { minimumFractionDigits: 2 }),
+        '✅ Captured', 5
+      );
+    }
+    return { status: 'captured', suffix: suffix, value: value, dateStr: dateStr };
+
   } catch (e) {
-    SpreadsheetApp.getUi().alert('Error – Account ' + suffix, e.message,
-      SpreadsheetApp.getUi().ButtonSet.OK);
+    if (!silent) {
+      SpreadsheetApp.getUi().alert('Error – Account ' + suffix, e.message,
+        SpreadsheetApp.getUi().ButtonSet.OK);
+    }
     console.error(e);
+    return { status: 'error', suffix: suffix, message: e.message };
   }
 }
 

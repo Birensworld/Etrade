@@ -1,6 +1,6 @@
 /**
  * Code.gs — E*Trade Portfolio + Equity Curve — Google Apps Script
- * Version: 1.1 (2026-04-06) — Add Show Account Keys helper to menu
+ * Version: 1.2 (2026-04-07) — Add Capture All Accounts NL menu item + captureAllNetLiq()
  *
  * Entry point: onOpen() builds all menus.
  * Functionality is split across separate files:
@@ -79,7 +79,8 @@ function onOpen() {
     .addToUi();
 
   ui.createMenu('📈 Equity Curve')
-    .addItem('📊 Fetch SPY + QQQ History', 'fetchSPYHistory')
+    .addItem('📊 Fetch SPY + QQQ History',              'fetchSPYHistory')
+    .addItem('📸 Capture Today\'s Net Liq – All Accounts', 'captureAllNetLiq')
     .addSeparator()
     .addSubMenu(ui.createMenu('💼 Account …7806')
       .addItem("Capture Today's Net Liquidity (skip if exists)", 'fetchTodayNetLiq_7806')
@@ -121,6 +122,46 @@ function buildEquityCurveChartYearly_3945()   { promptAndBuildYearlyEquityCurve_
 // ─────────────────────────────────────────────────────────────────
 // Batch helpers
 // ─────────────────────────────────────────────────────────────────
+
+/**
+ * Menu entry: captures today's Net Liquidity for ALL accounts in one click.
+ * Runs silently per-account then shows a combined summary toast.
+ * Any errors are surfaced in a single alert after all accounts finish.
+ */
+function captureAllNetLiq() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast('Capturing Net Liquidity for all accounts…', 'Working', -1);
+
+  var results = ACCOUNT_ORDER.map(function(suffix) {
+    return fetchTodayNetLiqForAccount(suffix, true, true);  // skipIfExists=true, silent=true
+  });
+
+  // Build summary lines
+  var lines  = [];
+  var errors = [];
+
+  results.forEach(function(r) {
+    if (r.status === 'captured') {
+      lines.push('✅ …' + r.suffix + ':  $' +
+        r.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    } else if (r.status === 'skipped') {
+      lines.push('⏭️ …' + r.suffix + ':  already captured for ' + r.dateStr);
+    } else {
+      lines.push('❌ …' + r.suffix + ':  error');
+      errors.push('Account …' + r.suffix + ':\n' + r.message);
+    }
+  });
+
+  ss.toast(lines.join('\n'), '📸 Net Liquidity – All Accounts', 15);
+
+  if (errors.length > 0) {
+    SpreadsheetApp.getUi().alert(
+      'Errors capturing Net Liquidity',
+      errors.join('\n\n'),
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  }
+}
 
 /** Daily trigger target — captures Net Liq for all accounts. */
 function fetchTodayNetLiq() {
