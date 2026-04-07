@@ -1,6 +1,6 @@
 /**
  * Code.gs — EtradeA Sheet — E*Trade Portfolio + Equity Curve
- * Version: 1.3 (2026-04-07) — Rename fetchTodayNetLiqForAccount → captureNetLiqForAccount to match NetLiquidity.gs v1.4
+ * Version: 1.4 (2026-04-07) — Remove debugNetLiqReturn helper (GAS cache fix confirmed)
  *
  * Accounts: …3945 (ETrade A IRA)
  *
@@ -148,39 +148,6 @@ function captureAllNetLiq() {
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Debug helper — remove after diagnosing
-// ─────────────────────────────────────────────────────────────────
-
-/**
- * Run this directly from the GAS editor (Run → debugNetLiqReturn).
- * Shows exactly what captureNetLiqForAccount returns so we can
- * see why captureAllNetLiq's null-check is firing.
- */
-function debugNetLiqReturn() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  // Step 1: Check how many params the LIVE function has.
-  // Old (void) version = 2 params. New (returns object) version = 3 params.
-  var paramCount = captureNetLiqForAccount.length;
-  ss.toast(
-    'Live param count : ' + paramCount + '  (expect 3)\n' +
-    'If 2 → GAS is running cached old version',
-    '🔍 Step 1 – Param count', 10
-  );
-  console.log('captureNetLiqForAccount.length = ' + paramCount);
-  Utilities.sleep(10000);
-
-  // Step 2: Call and capture result
-  var result = captureNetLiqForAccount('3945', true, true);
-  ss.toast(
-    'typeof result : ' + (typeof result) + '\n' +
-    'result        : ' + JSON.stringify(result),
-    '🔍 Step 2 – Return value', 30
-  );
-  console.log('debugNetLiqReturn → ' + JSON.stringify(result));
 }
 
 /** Daily trigger target — captures Net Liq for all accounts. */
