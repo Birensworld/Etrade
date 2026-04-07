@@ -27,7 +27,7 @@ const CONSUMER_SECRET= '<your-consumer-secret>';
 // Sheet names
 // ─────────────────────────────────────────────────────────────────
 const SHEET_ETRADE  = 'EtradeB';
-const SHEET_NET_LIQ = 'Net Liquidity';
+const SHEET_NET_LIQ = 'NL History';
 const SHEET_SPY     = 'SPY History';
 const HISTORY_START = '2026-01-01';
 
