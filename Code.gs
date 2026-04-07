@@ -1,6 +1,6 @@
 /**
  * Code.gs — E*Trade Portfolio + Equity Curve — Google Apps Script
- * Version: 1.2 (2026-04-07) — Add Capture All Accounts NL menu item + captureAllNetLiq()
+ * Version: 1.3 (2026-04-07) — Defensive null-check in captureAllNetLiq() results loop
  *
  * Entry point: onOpen() builds all menus.
  * Functionality is split across separate files:
@@ -140,7 +140,14 @@ function captureAllNetLiq() {
   var lines  = [];
   var errors = [];
 
-  results.forEach(function(r) {
+  results.forEach(function(r, i) {
+    // Guard against old NetLiquidity.gs (void return) being deployed without this Code.gs
+    if (!r || typeof r.status === 'undefined') {
+      var s = ACCOUNT_ORDER[i] || '?';
+      lines.push('❌ …' + s + ':  no result returned — ensure NetLiquidity.gs is also updated');
+      errors.push('Account …' + s + ':\nNetLiquidity.gs may not be up to date. Please re-deploy both files.');
+      return;
+    }
     if (r.status === 'captured') {
       lines.push('✅ …' + r.suffix + ':  $' +
         r.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
