@@ -1,6 +1,6 @@
 /**
  * Code.gs — EtradeA Sheet — E*Trade Portfolio + Equity Curve
- * Version: 1.0 (2026-04-07) — Initial EtradeA-specific config (account 3945)
+ * Version: 1.1 (2026-04-07) — Add debugNetLiqReturn() to diagnose null result in captureAllNetLiq
  *
  * Accounts: …3945 (ETrade A IRA)
  *
@@ -148,6 +148,30 @@ function captureAllNetLiq() {
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Debug helper — remove after diagnosing
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Run this directly from the GAS editor (Run → debugNetLiqReturn).
+ * Shows exactly what fetchTodayNetLiqForAccount returns so we can
+ * see why captureAllNetLiq's null-check is firing.
+ */
+function debugNetLiqReturn() {
+  var result = fetchTodayNetLiqForAccount('3945', true, true);
+  var msg =
+    'typeof result : ' + (typeof result) + '\n' +
+    'result        : ' + JSON.stringify(result) + '\n\n' +
+    (result
+      ? 'status : ' + result.status + '\n' +
+        'suffix : ' + result.suffix
+      : '⚠️ result is ' + result);
+
+  SpreadsheetApp.getActiveSpreadsheet()
+    .toast(msg, '🔍 debugNetLiqReturn', 30);
+  console.log('debugNetLiqReturn → ' + JSON.stringify(result));
 }
 
 /** Daily trigger target — captures Net Liq for all accounts. */
