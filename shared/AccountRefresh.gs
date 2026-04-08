@@ -1,6 +1,6 @@
 /**
  * AccountRefresh.gs — Fetches and displays the E*Trade portfolio.
- * Version: 1.2 (2026-04-06) — Replace GOOGLEFINANCE change% with E*Trade market quote API
+ * Version: 1.3 (2026-04-08) — Deep loss rule: light grey background + red font, evaluated before general loss
  *
  * Writes to sheet "EtradeB":
  *   • One header row per account (label | total value | cash | ALLOC | YTD P/L)
@@ -276,6 +276,19 @@ function getAccountSuffix_(accountId) {
 function applyPositionConditionalFormatting_(sheet, startRow, numRows) {
   var rules = sheet.getConditionalFormatRules();
 
+  // P/L% (G): deep loss < -7% — light grey background + red font.
+  // Must be pushed FIRST so it takes priority over the general loss rule below.
+  var plPctRange = sheet.getRange(startRow, 7, numRows, 1);
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThan(-0.07)
+      .setBackground('#d9d9d9')
+      .setFontColor('red')
+      .setBold(true)
+      .setRanges([plPctRange])
+      .build()
+  );
+
   // Columns: C (Chg%), F (P/L), G (P/L%)
   [3, 6, 7].forEach(function(col) {
     var range = sheet.getRange(startRow, col, numRows, 1);
@@ -307,18 +320,6 @@ function applyPositionConditionalFormatting_(sheet, startRow, numRows) {
         .build()
     );
   });
-
-  // P/L% (G): highlight deep losses (< -7%) with pink background
-  var plPctRange = sheet.getRange(startRow, 7, numRows, 1);
-  rules.push(
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenNumberLessThan(-0.07)
-      .setBackground('#FFCCCB')
-      .setFontColor('black')
-      .setBold(true)
-      .setRanges([plPctRange])
-      .build()
-  );
 
   sheet.setConditionalFormatRules(rules);
 }
