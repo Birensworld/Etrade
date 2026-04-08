@@ -1,5 +1,5 @@
 // ============================================================
-// NEWS FEED
+// NEWS FEED                                      Version: 1.3
 // Refreshes daily at 9 AM ET via a time-based trigger.
 // Data source: Finnhub (free tier — finnhub.io)
 //
@@ -15,15 +15,14 @@ const FINNHUB_KEY_PROP  = "FINNHUB_API_KEY";
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 
 // A headline must contain at least one of these to be shown.
-// These are events that directly move a stock price.
+// Analyst upgrades/downgrades are intentionally excluded here — they
+// are captured in the dedicated Upgrade/Downgrade column instead.
 const MARKET_MOVING_KEYWORDS = [
   // Earnings & guidance
   "earnings beat", "earnings miss", "beat estimates", "missed estimates",
   "beats expectations", "misses expectations", "raised guidance", "lowered guidance",
   "cuts forecast", "raises forecast", "profit warning", "revenue warning",
   "quarterly results", "full-year guidance",
-  // Analyst actions with price impact
-  "price target", "initiates coverage", "upgrades", "downgrades",
   // M&A / corporate events
   "merger", "acquisition", "acquires", "takeover", "buyout",
   "going private", "spinoff", "spin-off", "divests", "sells unit",
@@ -39,18 +38,25 @@ const MARKET_MOVING_KEYWORDS = [
   "bankruptcy", "chapter 11", "defaults", "debt restructuring",
   "product recall", "data breach", "cyberattack", "plant closure",
   "major layoff", "mass layoff",
+  // Credit / bond
+  "credit downgrade", "credit upgrade", "debt downgrade", "rating cut",
   // Contracts & partnerships
   "major contract", "awarded contract", "loses contract",
   "strategic partnership", "joint venture"
 ];
 
-// Headlines containing these phrases are generic noise — skip even if
-// they match a keyword above.
+// Headlines containing ANY of these phrases are suppressed — analyst
+// upgrade/downgrade lines are shown in the U/D column, not News.
 const NOISE_PHRASES = [
+  // Analyst rating actions → goes to Upgrade/Downgrade column
+  "upgrades ", "downgrades ", "upgraded to", "downgraded to",
+  "reiterates", "maintains rating", "maintains buy", "maintains hold",
+  "initiates with", "initiates coverage",
+  // Generic non-events
   "to present at", "to speak at", "conference call", "webcast",
   "names new vp", "names new director", "promotes", "appoints vp",
   "monthly traffic", "weekly data", "analyst day", "investor day",
-  "price target raised by", // lone PT changes without action are minor
+  "price target raised by", "price target lowered by",
   "scheduled to report", "expected to report", "will report earnings on"
 ];
 
@@ -116,10 +122,11 @@ function fetchMarketOverview_(apiKey) {
 }
 
 function fetchTickerRow_(ticker, apiKey) {
-  const today  = new Date();
-  const from3d = formatDate_(new Date(today - 3 * 864e5));   // 3 days back
-  const todayS = formatDate_(today);
-  const to90d  = formatDate_(new Date(today - -90 * 864e5)); // 90 days ahead
+  const today   = new Date();
+  const from3d  = formatDate_(new Date(today - 3  * 864e5));  // 3 days back  (news)
+  const from30d = formatDate_(new Date(today - 30 * 864e5));  // 30 days back (upgrades)
+  const todayS  = formatDate_(today);
+  const to90d   = formatDate_(new Date(today - -90 * 864e5)); // 90 days ahead
 
   // ── News (only truly market-moving headlines; blank otherwise) ──
   let news = "";
@@ -151,16 +158,18 @@ function fetchTickerRow_(ticker, apiKey) {
   } catch (e) { Logger.log("Rec: " + ticker + " – " + e.message); }
   Utilities.sleep(150);
 
-  // ── Recent upgrade / downgrade ──
+  // ── Recent upgrade / downgrade (30-day lookback) ──
   let upgradeDowngrade = "—";
   try {
-    const resp = finnhubGet_(`stock/upgrade-downgrade?symbol=${ticker}&from=${from3d}`, apiKey);
+    const resp = finnhubGet_(`stock/upgrade-downgrade?symbol=${ticker}&from=${from30d}`, apiKey);
     if (Array.isArray(resp) && resp.length > 0) {
       const r      = resp[0];
-      const action = (r.action    || "").replace(/^(up|down)grade$/i, s => s[0].toUpperCase() + s.slice(1).toLowerCase());
-      const firm   = r.company  || "";
-      const grade  = r.toGrade  || "";
-      if (action && grade) upgradeDowngrade = `${firm}: ${action} → ${grade}`;
+      const action = (r.action || "").replace(/^(up|down)grade$/i,
+                       s => s[0].toUpperCase() + s.slice(1).toLowerCase());
+      const firm   = r.company   || "";
+      const grade  = r.toGrade   || "";
+      const date   = r.gradeDate || "";
+      if (firm && grade) upgradeDowngrade = `${date}  ${firm}: ${action} → ${grade}`;
     }
   } catch (e) { Logger.log("UG: " + ticker + " – " + e.message); }
   Utilities.sleep(150);
@@ -235,19 +244,31 @@ function buildNewsFeedSheet_(ss, marketOverview, rows) {
   sheet.setRowHeight(r, 30);
   r++;
 
+  const today7 = new Date();
+  today7.setDate(today7.getDate() + 7);
+  const sevenDaysOut = formatDate_(today7);
+  const todayStr     = formatDate_(new Date());
+
   // ── Data rows ──
   // Array order: [ticker, direction, news, earningsDate, upgradeDowngrade]
   rows.forEach(([ticker, direction, news, earningsDate, upgradeDowngrade]) => {
     sheet.getRange(r, 1).setValue(ticker).setHorizontalAlignment("center");
 
+    // Col 2: Direction — bold + colored
     const dirCell = sheet.getRange(r, 2);
-    dirCell.setValue(direction).setHorizontalAlignment("center");
+    dirCell.setValue(direction).setHorizontalAlignment("center").setFontWeight("bold");
     if      (direction === "Bullish") dirCell.setFontColor("#38761d");
     else if (direction === "Bearish") dirCell.setFontColor("#cc0000");
     else                              dirCell.setFontColor("#7d6608");
 
     sheet.getRange(r, 3).setValue(news).setWrap(true).setHorizontalAlignment("left");
-    sheet.getRange(r, 4).setValue(earningsDate).setHorizontalAlignment("center");
+
+    // Col 4: Earnings date — red + bold if within 7 days
+    const earnCell    = sheet.getRange(r, 4);
+    const earningsNear = earningsDate !== "—" && earningsDate >= todayStr && earningsDate <= sevenDaysOut;
+    earnCell.setValue(earningsDate).setHorizontalAlignment("center");
+    if (earningsNear) earnCell.setFontColor("#cc0000").setFontWeight("bold");
+
     sheet.getRange(r, 5).setValue(upgradeDowngrade).setHorizontalAlignment("left");
 
     sheet.getRange(r, 1, 1, 5)
@@ -259,7 +280,7 @@ function buildNewsFeedSheet_(ss, marketOverview, rows) {
     r++;
   });
 
-  // Bold ticker column
+  // Bold ticker column (col 1)
   sheet.getRange(5, 1, rows.length, 1).setFontWeight("bold");
 }
 
