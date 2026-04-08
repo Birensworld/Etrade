@@ -14,12 +14,44 @@ const FINNHUB_KEY_PROP  = "FINNHUB_API_KEY";
 // Ticker regex: 1–6 uppercase letters / dots (covers BRK.B, etc.)
 const TICKER_RE = /^[A-Z][A-Z.]{0,5}$/;
 
-// Keywords that flag a headline as market-moving
-const SIGNIFICANT_KEYWORDS = [
-  "beat", "miss", "upgrade", "downgrade", "earnings", "guidance",
-  "raises", "cuts", "buyback", "merger", "acqui", "lawsuit",
-  "fda", "deal", "record", "outlook", "charge", "restatement",
-  "investigation", "layoff", "dividend"
+// A headline must contain at least one of these to be shown.
+// These are events that directly move a stock price.
+const MARKET_MOVING_KEYWORDS = [
+  // Earnings & guidance
+  "earnings beat", "earnings miss", "beat estimates", "missed estimates",
+  "beats expectations", "misses expectations", "raised guidance", "lowered guidance",
+  "cuts forecast", "raises forecast", "profit warning", "revenue warning",
+  "quarterly results", "full-year guidance",
+  // Analyst actions with price impact
+  "price target", "initiates coverage", "upgrades", "downgrades",
+  // M&A / corporate events
+  "merger", "acquisition", "acquires", "takeover", "buyout",
+  "going private", "spinoff", "spin-off", "divests", "sells unit",
+  // Capital returns
+  "buyback", "share repurchase", "dividend cut", "dividend suspended",
+  "special dividend", "raises dividend",
+  // Regulatory / legal
+  "fda approval", "fda rejects", "fda clears", "sec investigation",
+  "doj investigation", "antitrust", "class action", "settlement",
+  "subpoena", "indicted",
+  // Operational shocks
+  "ceo resigns", "ceo fired", "ceo steps down", "cfo resigns",
+  "bankruptcy", "chapter 11", "defaults", "debt restructuring",
+  "product recall", "data breach", "cyberattack", "plant closure",
+  "major layoff", "mass layoff",
+  // Contracts & partnerships
+  "major contract", "awarded contract", "loses contract",
+  "strategic partnership", "joint venture"
+];
+
+// Headlines containing these phrases are generic noise — skip even if
+// they match a keyword above.
+const NOISE_PHRASES = [
+  "to present at", "to speak at", "conference call", "webcast",
+  "names new vp", "names new director", "promotes", "appoints vp",
+  "monthly traffic", "weekly data", "analyst day", "investor day",
+  "price target raised by", // lone PT changes without action are minor
+  "scheduled to report", "expected to report", "will report earnings on"
 ];
 
 // ============================================================
@@ -53,7 +85,7 @@ function refreshNewsFeed() {
       rows.push(fetchTickerRow_(ticker, apiKey));
     } catch (e) {
       Logger.log("⚠ " + ticker + ": " + e.message);
-      rows.push([ticker, "N/A", "—", "—", "Error: " + e.message]);
+      rows.push([ticker, "N/A", "Error: " + e.message, "—", "—"]);
     }
     Utilities.sleep(250); // stay within 60 req/min free-tier limit
   });
@@ -89,17 +121,17 @@ function fetchTickerRow_(ticker, apiKey) {
   const todayS = formatDate_(today);
   const to90d  = formatDate_(new Date(today - -90 * 864e5)); // 90 days ahead
 
-  // ── News ──
-  let news = "No significant news";
+  // ── News (only truly market-moving headlines; blank otherwise) ──
+  let news = "";
   try {
     const resp = finnhubGet_(`company-news?symbol=${ticker}&from=${from3d}&to=${todayS}`, apiKey);
     if (Array.isArray(resp) && resp.length > 0) {
       const sig = resp.filter(n => {
         const h = (n.headline || "").toLowerCase();
-        return SIGNIFICANT_KEYWORDS.some(k => h.includes(k));
+        if (NOISE_PHRASES.some(p => h.includes(p))) return false;
+        return MARKET_MOVING_KEYWORDS.some(k => h.includes(k));
       });
-      const src = sig.length > 0 ? sig : resp;
-      news = src.slice(0, 2).map(n => n.headline).join("  |  ");
+      if (sig.length > 0) news = sig.slice(0, 2).map(n => n.headline).join("  |  ");
     }
   } catch (e) { Logger.log("News: " + ticker + " – " + e.message); }
   Utilities.sleep(150);
@@ -141,7 +173,8 @@ function fetchTickerRow_(ticker, apiKey) {
     if (Array.isArray(cal) && cal.length > 0) earningsDate = cal[0].date || "—";
   } catch (e) { Logger.log("Earnings: " + ticker + " – " + e.message); }
 
-  return [ticker, direction, upgradeDowngrade, earningsDate, news];
+  // Columns: Ticker | Direction | News | Earnings Date | Upgrade/Downgrade
+  return [ticker, direction, news, earningsDate, upgradeDowngrade];
 }
 
 // ============================================================
@@ -156,9 +189,9 @@ function buildNewsFeedSheet_(ss, marketOverview, rows) {
   // Column widths
   sheet.setColumnWidth(1, 80);   // Ticker
   sheet.setColumnWidth(2, 100);  // Direction
-  sheet.setColumnWidth(3, 240);  // Upgrade/Downgrade
+  sheet.setColumnWidth(3, 620);  // News
   sheet.setColumnWidth(4, 120);  // Earnings Date
-  sheet.setColumnWidth(5, 620);  // News
+  sheet.setColumnWidth(5, 260);  // Upgrade/Downgrade
 
   const dirColor = { Bullish: "#b6d7a8", Bearish: "#ea9999", Neutral: "#ffe599", "N/A": "#f3f3f3" };
   let r = 1;
@@ -192,7 +225,7 @@ function buildNewsFeedSheet_(ss, marketOverview, rows) {
 
   // ── Column headers ──
   sheet.getRange(r, 1, 1, 5)
-    .setValues([["Ticker", "Direction", "Upgrade / Downgrade", "Earnings Date", "News"]])
+    .setValues([["Ticker", "Direction", "News", "Earnings Date", "Upgrade / Downgrade"]])
     .setBackground("#cfe2f3")
     .setFontWeight("bold")
     .setFontSize(11)
@@ -203,7 +236,8 @@ function buildNewsFeedSheet_(ss, marketOverview, rows) {
   r++;
 
   // ── Data rows ──
-  rows.forEach(([ticker, direction, upgradeDowngrade, earningsDate, news]) => {
+  // Array order: [ticker, direction, news, earningsDate, upgradeDowngrade]
+  rows.forEach(([ticker, direction, news, earningsDate, upgradeDowngrade]) => {
     sheet.getRange(r, 1).setValue(ticker).setHorizontalAlignment("center");
 
     const dirCell = sheet.getRange(r, 2);
@@ -212,9 +246,9 @@ function buildNewsFeedSheet_(ss, marketOverview, rows) {
     else if (direction === "Bearish") dirCell.setFontColor("#cc0000");
     else                              dirCell.setFontColor("#7d6608");
 
-    sheet.getRange(r, 3).setValue(upgradeDowngrade).setHorizontalAlignment("left");
+    sheet.getRange(r, 3).setValue(news).setWrap(true).setHorizontalAlignment("left");
     sheet.getRange(r, 4).setValue(earningsDate).setHorizontalAlignment("center");
-    sheet.getRange(r, 5).setValue(news).setWrap(true).setHorizontalAlignment("left");
+    sheet.getRange(r, 5).setValue(upgradeDowngrade).setHorizontalAlignment("left");
 
     sheet.getRange(r, 1, 1, 5)
       .setBackground(r % 2 === 0 ? "#f9f9f9" : "#ffffff")
