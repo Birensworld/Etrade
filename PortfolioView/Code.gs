@@ -48,6 +48,10 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Portfolio")
     .addItem("Get All Accounts", "mergePortfolioSheets")
+    .addSeparator()
+    .addItem("Refresh News Feed", "refreshNewsFeed")
+    .addItem("Schedule Daily News (9 AM ET)", "createNewsFeedTrigger")
+    .addItem("Set Finnhub API Key", "setFinnhubApiKey")
     .addToUi();
 }
 
