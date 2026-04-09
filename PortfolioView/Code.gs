@@ -1,5 +1,5 @@
 // ============================================================
-// PORTFOLIO VIEW                                 Version: 1.3
+// PORTFOLIO VIEW                                 Version: 1.4
 // ============================================================
 
 
@@ -57,6 +57,9 @@ function onOpen() {
     .addItem("Refresh News Feed", "refreshNewsFeed")
     .addItem("Schedule Daily News (9 AM ET)", "createNewsFeedTrigger")
     .addItem("Set Finnhub API Key", "setFinnhubApiKey")
+    .addSeparator()
+    .addItem("Refresh Earnings Report", "refreshEarningsReport")
+    .addItem("Schedule Earnings Report (8 AM & 5 PM ET)", "createEarningsTriggers")
     .addToUi();
 }
 
