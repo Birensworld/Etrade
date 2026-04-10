@@ -1,5 +1,5 @@
 // ============================================================
-// EARNINGS REPORT                                Version: 1.0
+// EARNINGS REPORT                                Version: 1.1
 // Runs twice daily: 8 AM ET (pre-market) & 5 PM ET (post-close).
 // Notable = HIGH_PROFILE company OR YoY EPS increase > 25%.
 // Emails birensworld@gmail.com on each refresh.
@@ -124,11 +124,77 @@ function refreshEarningsReport() {
 // ============================================================
 
 function fetchTodayEarnings_(dateStr, apiKey) {
+  // Layer 1: Finnhub earnings calendar (may be empty on free tier)
   try {
     const resp = finnhubGet_(`calendar/earnings?from=${dateStr}&to=${dateStr}`, apiKey);
-    return ((resp && resp.earningsCalendar) || []).filter(e => e && e.symbol);
+    const cal  = ((resp && resp.earningsCalendar) || []).filter(e => e && e.symbol);
+    if (cal.length > 0) {
+      Logger.log("Earnings via Finnhub: " + cal.length + " entries");
+      return cal;
+    }
   } catch (e) {
-    Logger.log("Earnings calendar: " + e.message);
+    Logger.log("Finnhub earnings calendar: " + e.message);
+  }
+
+  // Layer 2: Nasdaq earnings calendar (free public API, no key required)
+  Logger.log("Falling back to Nasdaq earnings calendar for " + dateStr);
+  return fetchEarningsFromNasdaq_(dateStr);
+}
+
+// Nasdaq public earnings calendar — returns same-shape objects as Finnhub
+// so they pass through buildNotableRow_ unchanged.
+function fetchEarningsFromNasdaq_(dateStr) {
+  try {
+    const url  = "https://api.nasdaq.com/api/calendar/earnings?date=" + dateStr;
+    const resp = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: {
+        "User-Agent":      "Mozilla/5.0 (compatible)",
+        "Accept":          "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9"
+      }
+    });
+    if (resp.getResponseCode() !== 200) {
+      Logger.log("Nasdaq calendar HTTP " + resp.getResponseCode());
+      return [];
+    }
+
+    const data = JSON.parse(resp.getContentText());
+    // Nasdaq response: { data: { rows: [ { symbol, name, time, eps, epsForecast,
+    //   lastYearEPS, EPSSurprisePercent, marketCap, ... } ] } }
+    const rows = data && data.data && data.data.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+
+    Logger.log("Earnings via Nasdaq: " + rows.length + " entries");
+
+    return rows
+      .filter(function(r) { return r && r.symbol && r.symbol.trim(); })
+      .map(function(r) {
+        // Nasdaq "time" values: "time-pre-market" → bmo, "time-after-hours" → amc
+        const hour = (r.time || "").indexOf("pre") >= 0 ? "bmo"
+                   : (r.time || "").indexOf("after") >= 0 ? "amc" : "";
+
+        // eps field is the actual EPS if reported, otherwise empty / "--"
+        const epsStr = (r.eps || "").replace(/[^0-9.\-]/g, "");
+        const estStr = (r.epsForecast || "").replace(/[^0-9.\-]/g, "");
+        const ly     = (r.lastYearEPS || "").replace(/[^0-9.\-]/g, "");
+
+        const epsActual   = epsStr  !== "" ? parseFloat(epsStr)  : null;
+        const epsEstimate = estStr  !== "" ? parseFloat(estStr)  : null;
+        const lastYearEps = ly      !== "" ? parseFloat(ly)      : null;
+
+        return {
+          symbol:          r.symbol.trim().toUpperCase(),
+          epsActual:       epsActual,
+          epsEstimate:     epsEstimate,
+          revenueActual:   null,  // not available in Nasdaq calendar
+          revenueEstimate: null,
+          hour:            hour,
+          _lastYearEps:    lastYearEps  // stashed for YoY fallback
+        };
+      });
+  } catch (e) {
+    Logger.log("Nasdaq earnings calendar: " + e.message);
     return [];
   }
 }
@@ -146,7 +212,11 @@ function buildNotableRow_(e, apiKey) {
   let yoyNotable = false;
 
   if (hasActual) {
-    yoyPct     = fetchYoYChange_(ticker, apiKey);
+    yoyPct = fetchYoYChange_(ticker, apiKey);
+    // Fallback: use lastYearEPS from Nasdaq data if Finnhub history is unavailable
+    if (yoyPct === null && e._lastYearEps != null && e._lastYearEps !== 0) {
+      yoyPct = ((e.epsActual - e._lastYearEps) / Math.abs(e._lastYearEps)) * 100;
+    }
     yoyNotable = yoyPct !== null && yoyPct > 25;
   }
 

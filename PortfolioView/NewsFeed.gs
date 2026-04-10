@@ -1,5 +1,5 @@
 // ============================================================
-// NEWS FEED                                      Version: 1.7
+// NEWS FEED                                      Version: 1.8
 // Refreshes daily at 9 AM ET via a time-based trigger.
 // Data source: Finnhub (free tier — finnhub.io)
 //
@@ -224,7 +224,7 @@ function fetchTickerRow_(ticker, apiKey) {
   // --- Layer 3: News headline regex ---
   if (upgradeDowngrade === "—") {
     for (const item of rawNews) {
-      const parsed = parseUDFromHeadline_(item.headline || "", item.datetime);
+      const parsed = parseUDFromHeadline_(item.headline || "", item.datetime, ticker);
       if (parsed) { upgradeDowngrade = parsed; break; }
     }
   }
@@ -282,30 +282,41 @@ function fetchUDFromYahoo_(ticker) {
 }
 
 // Parses upgrade/downgrade info from a news headline.
+// contextTicker: the stock we're analyzing (used to reject headlines where the
+//   "firm" is actually the company being rated, not the analyst firm).
+//
 // Handles two common formats:
-//   Pattern 1: "Firm Upgrades/Downgrades Company to Grade"
+//   Pattern 1: "Firm Upgrades/Downgrades Company to Grade [from OldGrade]"
+//              e.g. "UBS Downgrades NOW to Neutral from Buy, Lowers PT..."
 //   Pattern 2: "Company Upgraded/Downgraded to Grade at/by Firm"
-// Returns formatted string or null if no match.
-function parseUDFromHeadline_(headline, unixtimestamp) {
-  const h = headline.trim();
+//              e.g. "NOW downgraded to Neutral at UBS"
+// Returns formatted "date  Firm: Action → Grade" string or null.
+function parseUDFromHeadline_(headline, unixtimestamp, contextTicker) {
+  const h   = headline.trim();
+  const ctx = (contextTicker || "").toUpperCase();
 
-  // Pattern 1: headline starts with firm name (most common Finnhub format)
-  // /i flag required — Finnhub headlines use title-case "Downgrades", not lowercase
+  function makeResult_(act, firm, rawGrade, ts) {
+    if (!firm || firm.length < 2) return null;
+    // Reject if firm is actually the ticker we're analyzing (headline starts with ticker)
+    if (ctx && firm.replace(/[^A-Z]/gi, "").toUpperCase() === ctx) return null;
+    // Clean grade: strip "from OldGrade" suffix  e.g. "Neutral from Buy" → "Neutral"
+    const grade = rawGrade.trim().replace(/\s+from\s+.*/i, "").replace(/[,;].*/, "").trim();
+    if (!grade) return null;
+    const label = act[0].toUpperCase() + act.slice(1).toLowerCase();
+    const date  = ts
+      ? Utilities.formatDate(new Date(ts * 1000), "America/New_York", "yyyy-MM-dd")
+      : "";
+    return `${date}  ${firm}: ${label} → ${grade}`;
+  }
+
+  // Pattern 1: headline starts with analyst firm (most common Benzinga/Finnhub format)
+  // "UBS Downgrades NOW to Neutral from Buy, Lowers PT to $100 from $170"
   const m1 = h.match(
     /^(.+?)\s+(upgrade[sd]?|downgrade[sd]?|initiates?(?:\s+coverage)?)\s+.+?\bto\s+([A-Za-z][A-Za-z\s\-+]+?)(?:\s*[|–—,]|$)/i
   );
   if (m1) {
-    const firm  = m1[1].trim();
-    const act   = m1[2].trim();
-    const grade = m1[3].trim();
-    // Reject if firm looks like a bare ticker symbol (all caps, ≤ 5 chars)
-    if (firm.length >= 3 && !/^[A-Z]{1,5}$/.test(firm)) {
-      const date = unixtimestamp
-        ? Utilities.formatDate(new Date(unixtimestamp * 1000), "America/New_York", "yyyy-MM-dd")
-        : "";
-      const label = act[0].toUpperCase() + act.slice(1).toLowerCase();
-      return `${date}  ${firm}: ${label} → ${grade}`;
-    }
+    const r = makeResult_(m1[2], m1[1].trim(), m1[3], unixtimestamp);
+    if (r) return r;
   }
 
   // Pattern 2: "Company Upgraded/Downgraded to Grade at/by Firm"
@@ -313,16 +324,8 @@ function parseUDFromHeadline_(headline, unixtimestamp) {
     /\b(upgrade[sd]?|downgrade[sd]?|initiates?(?:\s+coverage)?)\s+to\s+([A-Za-z][A-Za-z\s\-+]+?)\s+(?:at|by)\s+(.+?)(?:\s*[|–—,]|$)/i
   );
   if (m2) {
-    const act   = m2[1].trim();
-    const grade = m2[2].trim();
-    const firm  = m2[3].trim();
-    if (firm.length >= 3) {
-      const date = unixtimestamp
-        ? Utilities.formatDate(new Date(unixtimestamp * 1000), "America/New_York", "yyyy-MM-dd")
-        : "";
-      const label = act[0].toUpperCase() + act.slice(1).toLowerCase();
-      return `${date}  ${firm}: ${label} → ${grade}`;
-    }
+    const r = makeResult_(m2[1], m2[3].trim(), m2[2], unixtimestamp);
+    if (r) return r;
   }
 
   return null;
