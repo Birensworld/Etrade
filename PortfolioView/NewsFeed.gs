@@ -1,5 +1,5 @@
 // ============================================================
-// NEWS FEED                                      Version: 1.4
+// NEWS FEED                                      Version: 1.5
 // Refreshes daily at 9 AM ET via a time-based trigger.
 // Data source: Finnhub (free tier — finnhub.io)
 //
@@ -140,10 +140,10 @@ function fetchMarketOverview_(apiKey) {
 
 function fetchTickerRow_(ticker, apiKey) {
   const today   = new Date();
-  const from7d  = formatDate_(new Date(today - 7  * 864e5));  // 7 days back  (news + U/D fallback)
-  const from30d = formatDate_(new Date(today - 30 * 864e5));  // 30 days back (U/D primary)
+  const from7d  = formatDate_(new Date(today - 7  * 864e5));  // 7 days back  (news window)
+  const from90d = formatDate_(new Date(today - 90 * 864e5));  // 90 days back (U/D primary lookback)
   const todayS  = formatDate_(today);
-  const to90d   = formatDate_(new Date(today - -90 * 864e5)); // 90 days ahead
+  const to90d   = formatDate_(new Date(today - -90 * 864e5)); // 90 days ahead (earnings)
 
   // ── Fetch raw news (7-day window) — used for both News and U/D fallback ──
   let rawNews = [];
@@ -177,19 +177,24 @@ function fetchTickerRow_(ticker, apiKey) {
   Utilities.sleep(150);
 
   // ── Upgrade / Downgrade ──
-  // Primary: Finnhub stock/upgrade-downgrade endpoint (30-day lookback)
+  // Primary: Finnhub stock/upgrade-downgrade endpoint (90-day lookback)
+  //   Finnhub action values: "up" = Upgrade, "down" = Downgrade, "init" = Initiates
+  //   "main" / "reit" (maintains/reiterates) are skipped — not directional.
   // Fallback: parse upgrade/downgrade action directly from news headlines
+  const UD_ACTION_MAP = { up: "Upgrade", down: "Downgrade", init: "Initiates" };
   let upgradeDowngrade = "—";
   try {
-    const resp = finnhubGet_(`stock/upgrade-downgrade?symbol=${ticker}&from=${from30d}`, apiKey);
+    const resp = finnhubGet_(`stock/upgrade-downgrade?symbol=${ticker}&from=${from90d}`, apiKey);
     if (Array.isArray(resp) && resp.length > 0) {
-      const r      = resp[0];
-      const firm   = (r.company   || "").trim();
-      const grade  = (r.toGrade   || "").trim();
-      const date   = (r.gradeDate || "").trim();
-      const action = (r.action    || "").replace(/^(up|down)grade$/i,
-                       s => s[0].toUpperCase() + s.slice(1).toLowerCase());
-      if (firm && grade) upgradeDowngrade = `${date}  ${firm}: ${action} → ${grade}`;
+      // Find most-recent directional action (skip maintains/reiterates)
+      const entry = resp.find(r => UD_ACTION_MAP[(r.action || "").toLowerCase()]);
+      if (entry) {
+        const firm        = (entry.company   || "").trim();
+        const grade       = (entry.toGrade   || "").trim();
+        const date        = (entry.gradeDate || "").trim();
+        const actionLabel = UD_ACTION_MAP[(entry.action || "").toLowerCase()] || (entry.action || "").trim();
+        if (firm && grade) upgradeDowngrade = `${date}  ${firm}: ${actionLabel} → ${grade}`;
+      }
     }
   } catch (e) { Logger.log("UG API: " + ticker + " – " + e.message); }
   Utilities.sleep(150);
@@ -214,27 +219,51 @@ function fetchTickerRow_(ticker, apiKey) {
   return [ticker, direction, news, earningsDate, upgradeDowngrade];
 }
 
-// Parses "[Firm] Upgrades/Downgrades [Company] to [Grade]" from a headline.
+// Parses upgrade/downgrade info from a news headline.
+// Handles two common formats:
+//   Pattern 1: "Firm Upgrades/Downgrades Company to Grade"
+//   Pattern 2: "Company Upgraded/Downgraded to Grade at/by Firm"
 // Returns formatted string or null if no match.
 function parseUDFromHeadline_(headline, unixtimestamp) {
-  // Pattern: anything before action word, then "to <grade>"
-  const match = headline.match(
-    /^(.+?)\s+(upgrade[sd]?|downgrade[sd]?)\s+.+?\bto\s+([A-Z][A-Za-z\s\-+]+?)(?:\s*[|–—,]|$)/
+  const h = headline.trim();
+
+  // Pattern 1: headline starts with firm name (most common Finnhub format)
+  // /i flag required — Finnhub headlines use title-case "Downgrades", not lowercase
+  const m1 = h.match(
+    /^(.+?)\s+(upgrade[sd]?|downgrade[sd]?|initiates?(?:\s+coverage)?)\s+.+?\bto\s+([A-Za-z][A-Za-z\s\-+]+?)(?:\s*[|–—,]|$)/i
   );
-  if (!match) return null;
+  if (m1) {
+    const firm  = m1[1].trim();
+    const act   = m1[2].trim();
+    const grade = m1[3].trim();
+    // Reject if firm looks like a bare ticker symbol (all caps, ≤ 5 chars)
+    if (firm.length >= 3 && !/^[A-Z]{1,5}$/.test(firm)) {
+      const date = unixtimestamp
+        ? Utilities.formatDate(new Date(unixtimestamp * 1000), "America/New_York", "yyyy-MM-dd")
+        : "";
+      const label = act[0].toUpperCase() + act.slice(1).toLowerCase();
+      return `${date}  ${firm}: ${label} → ${grade}`;
+    }
+  }
 
-  const firm   = match[1].trim();
-  const action = match[2].trim();
-  const grade  = match[3].trim();
+  // Pattern 2: "Company Upgraded/Downgraded to Grade at/by Firm"
+  const m2 = h.match(
+    /\b(upgrade[sd]?|downgrade[sd]?|initiates?(?:\s+coverage)?)\s+to\s+([A-Za-z][A-Za-z\s\-+]+?)\s+(?:at|by)\s+(.+?)(?:\s*[|–—,]|$)/i
+  );
+  if (m2) {
+    const act   = m2[1].trim();
+    const grade = m2[2].trim();
+    const firm  = m2[3].trim();
+    if (firm.length >= 3) {
+      const date = unixtimestamp
+        ? Utilities.formatDate(new Date(unixtimestamp * 1000), "America/New_York", "yyyy-MM-dd")
+        : "";
+      const label = act[0].toUpperCase() + act.slice(1).toLowerCase();
+      return `${date}  ${firm}: ${label} → ${grade}`;
+    }
+  }
 
-  // Skip if firm looks like a ticker or a generic phrase
-  if (firm.length < 3 || /^[A-Z]{1,5}$/.test(firm)) return null;
-
-  const date = unixtimestamp
-    ? Utilities.formatDate(new Date(unixtimestamp * 1000), "America/New_York", "yyyy-MM-dd")
-    : "";
-
-  return `${date}  ${firm}: ${action[0].toUpperCase() + action.slice(1).toLowerCase()} → ${grade}`;
+  return null;
 }
 
 // ============================================================
