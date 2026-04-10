@@ -1,5 +1,5 @@
 // ============================================================
-// NEWS FEED                                      Version: 1.6
+// NEWS FEED                                      Version: 1.7
 // Refreshes daily at 9 AM ET via a time-based trigger.
 // Data source: Finnhub (free tier — finnhub.io)
 //
@@ -63,18 +63,32 @@ const MARKET_MOVING_KEYWORDS = [
   "strategic partnership", "joint venture"
 ];
 
-// Headlines matching any of these are suppressed — they are either
-// captured by the U/D column or are generic non-events.
+// Headlines starting with these words are speculative questions, not events.
+// e.g. "Will SCHW Beat Estimates Again?" — not actionable news.
+const QUESTION_STARTS = [
+  "will ", "can ", "could ", "should ", "is ", "are ", "has ", "have ",
+  "does ", "did ", "what ", "when ", "why ", "how ", "which ", "who "
+];
+
+// Headlines matching any of these are suppressed — analyst actions go to the
+// U/D column; the rest are generic non-events or speculative preview content.
 const NOISE_PHRASES = [
   // Analyst rating actions → U/D column handles these
   "upgrades ", "downgrades ", "upgraded to", "downgraded to",
   "reiterates", "maintains rating", "maintains buy", "maintains hold",
   "initiates with", "initiates coverage",
+  // Earnings speculation / previews — not actual results
+  "beat estimates again", "miss estimates again",
+  "earnings preview", "earnings outlook", "earnings expectations",
+  "what to expect", "what analysts expect",
+  "ahead of earnings", "before earnings", "in its next earnings",
+  "next earnings report", "next quarter earnings",
+  "preview:", "outlook:", "looking ahead",
+  "stock prediction", "price target", "pt to ",
   // Generic non-events
   "to present at", "to speak at", "conference call", "webcast",
   "names new vp", "names new director", "promotes", "appoints vp",
   "monthly traffic", "weekly data", "analyst day", "investor day",
-  "price target raised by", "price target lowered by",
   "scheduled to report", "expected to report", "will report earnings on"
 ];
 
@@ -156,6 +170,8 @@ function fetchTickerRow_(ticker, apiKey) {
   // ── News column: market-moving headlines only, blank otherwise ──
   const sig = rawNews.filter(n => {
     const h = (n.headline || "").toLowerCase();
+    // Drop speculative questions ("Will X beat estimates?", "Can Y recover?", etc.)
+    if (QUESTION_STARTS.some(q => h.startsWith(q))) return false;
     if (NOISE_PHRASES.some(p => h.includes(p))) return false;
     return MARKET_MOVING_KEYWORDS.some(k => h.includes(k));
   });
