@@ -1,5 +1,5 @@
 // ============================================================
-// NEWS FEED                                      Version: 1.5
+// NEWS FEED                                      Version: 1.6
 // Refreshes daily at 9 AM ET via a time-based trigger.
 // Data source: Finnhub (free tier — finnhub.io)
 //
@@ -177,29 +177,35 @@ function fetchTickerRow_(ticker, apiKey) {
   Utilities.sleep(150);
 
   // ── Upgrade / Downgrade ──
-  // Primary: Finnhub stock/upgrade-downgrade endpoint (90-day lookback)
-  //   Finnhub action values: "up" = Upgrade, "down" = Downgrade, "init" = Initiates
-  //   "main" / "reit" (maintains/reiterates) are skipped — not directional.
-  // Fallback: parse upgrade/downgrade action directly from news headlines
+  // Layer 1: Finnhub stock/upgrade-downgrade (90-day lookback)
+  // Layer 2: Yahoo Finance quoteSummary upgradeDowngradeHistory (no key needed, great coverage)
+  // Layer 3: Parse directly from Finnhub news headlines (regex fallback)
   const UD_ACTION_MAP = { up: "Upgrade", down: "Downgrade", init: "Initiates" };
   let upgradeDowngrade = "—";
+
+  // --- Layer 1: Finnhub ---
   try {
     const resp = finnhubGet_(`stock/upgrade-downgrade?symbol=${ticker}&from=${from90d}`, apiKey);
     if (Array.isArray(resp) && resp.length > 0) {
-      // Find most-recent directional action (skip maintains/reiterates)
       const entry = resp.find(r => UD_ACTION_MAP[(r.action || "").toLowerCase()]);
       if (entry) {
         const firm        = (entry.company   || "").trim();
         const grade       = (entry.toGrade   || "").trim();
         const date        = (entry.gradeDate || "").trim();
-        const actionLabel = UD_ACTION_MAP[(entry.action || "").toLowerCase()] || (entry.action || "").trim();
+        const actionLabel = UD_ACTION_MAP[(entry.action || "").toLowerCase()];
         if (firm && grade) upgradeDowngrade = `${date}  ${firm}: ${actionLabel} → ${grade}`;
       }
     }
-  } catch (e) { Logger.log("UG API: " + ticker + " – " + e.message); }
+  } catch (e) { Logger.log("UG Finnhub: " + ticker + " – " + e.message); }
   Utilities.sleep(150);
 
-  // Fallback: scan news headlines for upgrade/downgrade pattern
+  // --- Layer 2: Yahoo Finance ---
+  if (upgradeDowngrade === "—") {
+    const yahoo = fetchUDFromYahoo_(ticker);
+    if (yahoo) upgradeDowngrade = yahoo;
+  }
+
+  // --- Layer 3: News headline regex ---
   if (upgradeDowngrade === "—") {
     for (const item of rawNews) {
       const parsed = parseUDFromHeadline_(item.headline || "", item.datetime);
@@ -217,6 +223,46 @@ function fetchTickerRow_(ticker, apiKey) {
 
   // Columns: Ticker | Direction | News | Earnings Date | Upgrade/Downgrade
   return [ticker, direction, news, earningsDate, upgradeDowngrade];
+}
+
+// Fetches the most-recent directional analyst rating from Yahoo Finance.
+// Uses the public quoteSummary endpoint — no API key required.
+// Returns formatted string "date  Firm: Action → Grade" or null.
+function fetchUDFromYahoo_(ticker) {
+  try {
+    const url = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/" +
+                encodeURIComponent(ticker) +
+                "?modules=upgradeDowngradeHistory&corsDomain=finance.yahoo.com";
+    const resp = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+    if (resp.getResponseCode() !== 200) return null;
+
+    const history =
+      JSON.parse(resp.getContentText())
+        ?.quoteSummary?.result?.[0]
+        ?.upgradeDowngradeHistory?.history;
+    if (!Array.isArray(history) || history.length === 0) return null;
+
+    const ACTION_MAP = { up: "Upgrade", down: "Downgrade", init: "Initiates" };
+    // Most-recent directional action (skip "main" = maintains, "reit" = reiterates)
+    const entry = history.find(h => ACTION_MAP[(h.action || "").toLowerCase()]);
+    if (!entry) return null;
+
+    const firm        = (entry.firm    || "").trim();
+    const grade       = (entry.toGrade || "").trim();
+    const actionLabel = ACTION_MAP[(entry.action || "").toLowerCase()];
+    if (!firm || !grade) return null;
+
+    const date = entry.epochGradeDate
+      ? Utilities.formatDate(new Date(entry.epochGradeDate * 1000), "America/New_York", "yyyy-MM-dd")
+      : "";
+    return `${date}  ${firm}: ${actionLabel} → ${grade}`;
+  } catch (e) {
+    Logger.log("UG Yahoo: " + e.message);
+    return null;
+  }
 }
 
 // Parses upgrade/downgrade info from a news headline.
