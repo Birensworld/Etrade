@@ -1,5 +1,5 @@
 // ============================================================
-// PORTFOLIO VIEW                                 Version: 1.4
+// PORTFOLIO VIEW                                 Version: 1.5
 // ============================================================
 
 
@@ -60,6 +60,9 @@ function onOpen() {
     .addSeparator()
     .addItem("Refresh Earnings Report", "refreshEarningsReport")
     .addItem("Schedule Earnings Report (8 AM & 5 PM ET)", "createEarningsTriggers")
+    .addSeparator()
+    .addItem("Refresh Top Ratings", "refreshTopRatings")
+    .addItem("Schedule Top Ratings (9 AM ET)", "createTopRatingsTrigger")
     .addToUi();
 }
 
