@@ -1,5 +1,5 @@
 // ============================================================
-// TOP ANALYST RATINGS                            Version: 1.0
+// TOP ANALYST RATINGS                            Version: 1.1
 // Refreshes daily at 9 AM ET via a time-based trigger.
 //
 // Shows up to 50 recent upgrade / downgrade / initiation actions
@@ -56,18 +56,21 @@ function refreshTopRatings() {
     return;
   }
 
-  const today  = formatDate_(new Date());
-  const from7d = formatDate_(new Date(new Date() - 7 * 864e5));
+  const today   = formatDate_(new Date());
+  const from30d = formatDate_(new Date(new Date() - 30 * 864e5));
 
   // ── Layer 1: Finnhub market-wide (no symbol = all stocks in their DB) ──
-  let rows = fetchTopRatingsFromFinnhub_(from7d, today, apiKey);
+  // Note: free tier often returns empty here; Yahoo fallback handles that case.
+  let rows = fetchTopRatingsFromFinnhub_(from30d, today, apiKey);
   Logger.log("Finnhub market-wide returned " + rows.length + " directional ratings");
 
-  // ── Layer 2: Yahoo Finance per watchlist ticker (fallback) ──
-  if (rows.length < 10) {
-    Logger.log("Falling back to Yahoo Finance watchlist fetch …");
-    const yahooRows = fetchTopRatingsFromYahoo_(TOP_RATINGS_WATCHLIST, from7d);
-    // Merge, deduplicate by ticker (Finnhub takes priority), re-sort
+  // ── Layer 2: Yahoo Finance per watchlist ticker ──
+  // Always runs alongside Finnhub to supplement coverage.
+  // Returns most-recent directional rating per ticker (no date cutoff —
+  // the Date column shows when the action happened).
+  if (rows.length < 50) {
+    Logger.log("Supplementing with Yahoo Finance watchlist fetch …");
+    const yahooRows = fetchTopRatingsFromYahoo_(TOP_RATINGS_WATCHLIST);
     const seen = new Set(rows.map(r => r[0]));
     yahooRows.forEach(r => { if (!seen.has(r[0])) { rows.push(r); seen.add(r[0]); } });
     rows.sort((a, b) => (b[5] || "").localeCompare(a[5] || ""));
@@ -83,6 +86,7 @@ function refreshTopRatings() {
 // ============================================================
 
 // Finnhub: query without a symbol returns all upgrade/downgrade events globally.
+// On the free tier this often returns an empty array — Yahoo covers the gap.
 // Returns array of [ticker, action, firm, fromGrade, toGrade, date] rows.
 function fetchTopRatingsFromFinnhub_(from, to, apiKey) {
   const ACTION_MAP = { up: "Upgrade", down: "Downgrade", init: "Initiates" };
@@ -108,9 +112,11 @@ function fetchTopRatingsFromFinnhub_(from, to, apiKey) {
   }
 }
 
-// Yahoo Finance: fetch upgrade-downgrade history per ticker and filter by fromDate.
+// Yahoo Finance: fetch the most-recent directional rating for each watchlist ticker.
+// No date cutoff — returns whatever the latest upgrade/downgrade/initiation was,
+// with the Date column showing when it happened. Sorted by date desc at the caller.
 // Returns the same [ticker, action, firm, fromGrade, toGrade, date] row format.
-function fetchTopRatingsFromYahoo_(tickers, fromDate) {
+function fetchTopRatingsFromYahoo_(tickers) {
   const ACTION_MAP = { up: "Upgrade", down: "Downgrade", init: "Initiates" };
   const rows = [];
 
@@ -131,15 +137,10 @@ function fetchTopRatingsFromYahoo_(tickers, fromDate) {
           ?.upgradeDowngradeHistory?.history;
       if (!Array.isArray(history)) return;
 
-      // Find the most recent directional action within the date window
-      const entry = history.find(h => {
-        if (!ACTION_MAP[(h.action || "").toLowerCase()]) return false;
-        if (!h.epochGradeDate) return false;
-        const d = Utilities.formatDate(
-          new Date(h.epochGradeDate * 1000), "America/New_York", "yyyy-MM-dd"
-        );
-        return d >= fromDate;
-      });
+      // Most-recent directional action — no date cutoff
+      const entry = history.find(h =>
+        ACTION_MAP[(h.action || "").toLowerCase()] && h.epochGradeDate
+      );
       if (!entry) return;
 
       const date = Utilities.formatDate(
@@ -148,7 +149,7 @@ function fetchTopRatingsFromYahoo_(tickers, fromDate) {
       rows.push([
         ticker,
         ACTION_MAP[(entry.action || "").toLowerCase()],
-        (entry.firm      || "").trim(),
+        (entry.firm       || "").trim(),
         ((entry.fromGrade || "") || "—").trim(),
         ((entry.toGrade   || "") || "—").trim(),
         date
@@ -182,7 +183,7 @@ function buildTopRatingsSheet_(ss, rows, dateStr) {
 
   // ── Title banner ──
   sheet.getRange(r, 1, 1, 6).merge()
-    .setValue("TOP ANALYST RATINGS  —  " + dateStr + "  (last 7 days)")
+    .setValue("TOP ANALYST RATINGS  —  most recent per ticker  (as of " + dateStr + ")")
     .setBackground("#434343").setFontColor("#ffffff")
     .setFontWeight("bold").setFontSize(13).setFontFamily("Nunito")
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
