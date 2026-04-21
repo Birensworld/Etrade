@@ -1,6 +1,6 @@
 /**
  * EtradeAPI.gs — Low-level E*Trade API wrappers.
- * Version: 1.3 (2026-04-06) — Add fetchEtradeQuotes_() for real-time change% from E*Trade market API
+ * Version: 1.4 (2026-04-08) — getPriceHistory: extend period2 by 1 day so today's close is included
  *
  * All functions here deal directly with the E*Trade REST API.
  * Higher-level logic (sheet writes, UI) lives in other files.
@@ -274,7 +274,8 @@ function fetchEtradeQuotes_(symbols, token, secret) {
  */
 function getPriceHistory(symbol, startDate, endDate) {
   var period1 = Math.floor(new Date(startDate).getTime() / 1000);
-  var period2 = Math.floor(new Date(endDate).getTime()   / 1000);
+  // Yahoo Finance period2 is exclusive at midnight UTC, so add 1 day to include endDate's close.
+  var period2 = Math.floor(new Date(endDate).getTime()   / 1000) + 86400;
 
   var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol +
     '?period1=' + period1 +
